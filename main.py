@@ -52,6 +52,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMG_BASE = os.path.join(BASE_DIR, "全球天气图集")
 MAP_BASE = os.path.join(BASE_DIR, "产区图")
 
+# 关键：启动时自动创建文件夹
+os.makedirs(IMG_BASE, exist_ok=True)
+os.makedirs(MAP_BASE, exist_ok=True)
+
 HTML_TPL = '''
 <!DOCTYPE html>
 <html lang="zh-CN">
