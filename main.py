@@ -811,26 +811,42 @@ def weather_page(folder):
                     <div class="img-name">{country_cn}{crop_cn}主产区图</div>
                 </div>
                 '''
+# 过去降水 —— 零风险写法，避免任何空值和重复匹配
+    p7 = None
+    p14 = None
+    p30 = None
+    p14a = None
+    p30a = None
 
-       # 过去降水
-    p7 = next((f for f in all_imgs if "过去7天降雨" in f and "距平" not in f), "")
-    p14 = next((f for f in all_imgs if "过去14天降雨" in f and "距平" not in f), "")
-    p30 = next((f for f in all_imgs if "过去30天降雨" in f and "距平" not in f), "")
-    p14a = next((f for f in all_imgs if "过去14天降雨距平" in f), "")
-    p30a = next((f for f in all_imgs if "过去30天降雨距平" in f), "")
+    for f in all_imgs:
+        if "过去7天降雨" in f and "距平" not in f:
+            p7 = f
+        elif "过去14天降雨" in f and "距平" not in f:
+            p14 = f
+        elif "过去30天降雨" in f and "距平" not in f:
+            p30 = f
+        elif "过去14天降雨距平" in f:
+            p14a = f
+        elif "过去30天降雨距平" in f:
+            p30a = f
 
-    # 按顺序加入列表，避免空值
+   # 严格过滤空值，只保留有效的文件名
     past_row = []
-    if p7:
-        past_row.append(p7)
-    if p14:
-        past_row.append(p14)
-    if p30:
-        past_row.append(p30)
-    if p14a:
-        past_row.append(p14a)
-    if p30a:
-        past_row.append(p30a)
+    if p7: past_row.append(p7)
+    if p14: past_row.append(p14)
+    if p30: past_row.append(p30)
+    if p14a: past_row.append(p14a)
+    if p30a: past_row.append(p30a)
+
+    # 过去气温
+    past_temp = [f for f in all_imgs if ("过去7天最高温" in f or "过去14天最高温" in f) and "距平" not in f]
+
+    # 未来降水
+    future_rain = [f for f in all_imgs if ("未来1-7天降雨" in f or "未来8-14天降雨" in f) and "距平" not in f]
+    future_rain_anomaly = [f for f in all_imgs if "未来14天降水距平" in f]
+
+    # 未来气温距平
+    future_temp_anom = [f for f in all_imgs if ("未来1-7天气温距平" in f or "未来8-14天气温距平" in f)]
 
     html = f'''
 <!DOCTYPE html>
