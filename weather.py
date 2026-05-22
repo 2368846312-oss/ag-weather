@@ -86,3 +86,8 @@ for area_name, area_suffix in AREA_CODE.items():
 print("\n=====================================")
 print(f"全部任务结束 | 总计:{total} 张 | 成功:{success} | 失败:{fail}")
 print(f"文件存放根目录：{os.path.abspath(ROOT_DIR)}")
+
+def run():
+    # 把你原来“运行爬虫”的所有代码 放到这里面
+    # 例如：
+    main()  # 如果你原来有 main() 就写这个
