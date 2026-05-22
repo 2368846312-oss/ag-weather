@@ -838,8 +838,8 @@ def weather_page(folder):
     if p14a: past_row.append(p14a)
     if p30a: past_row.append(p30a)
 
-    # 过去气温
-    past_temp = [f for f in all_imgs if ("过去7天最高温" in f or "过去14天最高温" in f) and "距平" not in f]
+    # 过去气温 —— 修复版，保留所有气温图
+    past_temp = [f for f in all_imgs if "过去7天最高温" in f or "过去14天最高温" in f]
 
     # 未来降水
     future_rain = [f for f in all_imgs if ("未来1-7天降雨" in f or "未来8-14天降雨" in f) and "距平" not in f]
