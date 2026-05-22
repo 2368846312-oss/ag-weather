@@ -1,5 +1,9 @@
 from flask import Flask, render_template_string, send_from_directory, request
 import os
+import time
+import threading
+from datetime import datetime
+import weather  # 直接调用你的爬虫
 
 # 关键：指定静态文件根目录，让Render能正确找到图片
 app = Flask(__name__)
@@ -55,6 +59,29 @@ MAP_BASE = os.path.join(BASE_DIR, "产区图")
 # 关键：启动时自动创建文件夹
 os.makedirs(IMG_BASE, exist_ok=True)
 os.makedirs(MAP_BASE, exist_ok=True)
+
+# --------------------------
+# 每天 8点 / 15点 自动更新天气图
+# --------------------------
+def auto_update_weather():
+    while True:
+        now = datetime.now()
+        hour = now.hour
+        minute = now.minute
+
+        # 早上8点 或 下午15点 → 自动更新
+        if (hour == 8 and minute == 0) or (hour == 15 and minute == 0):
+            try:
+                print("⏰ 自动更新天气图...")
+                weather.run()  # 运行你的爬虫
+                print("✅ 更新完成！")
+            except Exception as e:
+                print("❌ 更新失败：", e)
+
+        time.sleep(60)  # 每分钟检查一次时间
+
+# 后台启动自动任务
+threading.Thread(target=auto_update_weather, daemon=True).start()
 
 HTML_TPL = '''
 <!DOCTYPE html>
