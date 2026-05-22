@@ -812,23 +812,30 @@ def weather_page(folder):
                 </div>
                 '''
 
-    # 过去降水
-    p7 = next((f for f in all_imgs if "过去7天降雨" in f), "")
-    p14 = next((f for f in all_imgs if "过去14天降雨" in f), "")
-    p30 = next((f for f in all_imgs if "过去30天降雨" in f), "")
-    p14a = next((f for f in all_imgs if "过去14天降雨距平" in f), "")
-    p30a = next((f for f in all_imgs if "过去30天降雨距平" in f), "")
-    past_row = [i for i in [p7, p14, p30, p14a, p30a] if i]
+    # 过去降水 —— 我帮你修复了筛选逻辑，避免文件名互相包含导致被覆盖
+p7 = next((f for f in all_imgs if f == "过去7天降雨.png"), "")
+p14 = next((f for f in all_imgs if f == "过去14天降雨.png"), "")
+p30 = next((f for f in all_imgs if f == "过去30天降雨.png"), "")
+p14a = next((f for f in all_imgs if f == "过去14天降雨距平.png"), "")
+p30a = next((f for f in all_imgs if f == "过去30天降雨距平.png"), "")
 
-    # 过去气温
-    past_temp = [f for f in all_imgs if "过去7天最高温" in f or "过去14天最高温" in f]
+# 严格按顺序排列，确保不会乱
+past_row = []
+if p7: past_row.append(p7)
+if p14: past_row.append(p14)
+if p30: past_row.append(p30)
+if p14a: past_row.append(p14a)
+if p30a: past_row.append(p30a)
 
-    # 未来降水
-    future_rain = [f for f in all_imgs if "未来1-7天降雨" in f or "未来8-14天降雨" in f]
-    future_rain_anomaly = [f for f in all_imgs if "未来14天降水距平" in f]
+# 过去气温
+past_temp = [f for f in all_imgs if "过去7天最高温" in f or "过去14天最高温" in f]
 
-    # 未来气温距平
-    future_temp_anom = [f for f in all_imgs if "未来1-7天气温距平" in f or "未来8-14天气温距平" in f]
+# 未来降水
+future_rain = [f for f in all_imgs if "未来1-7天降雨" in f or "未来8-14天降雨" in f]
+future_rain_anomaly = [f for f in all_imgs if "未来14天降水距平" in f]
+
+# 未来气温距平
+future_temp_anom = [f for f in all_imgs if "未来1-7天气温距平" in f or "未来8-14天气温距平" in f]
 
     html = f'''
 <!DOCTYPE html>
