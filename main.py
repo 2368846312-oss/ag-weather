@@ -62,26 +62,26 @@ os.makedirs(MAP_BASE, exist_ok=True)
 
 # --------------------------
 # 每天 8点 / 15点 自动更新天气图
-# --------------------------
-def auto_update_weather():
-    while True:
-        now = datetime.now()
-        hour = now.hour
-        minute = now.minute
+# # --------------------------
+# def auto_update_weather():
+#     while True:
+#         now = datetime.now()
+#         hour = now.hour
+#         minute = now.minute
 
-        # 早上8点 或 下午15点 → 自动更新
-        if (hour == 8 and minute == 0) or (hour == 15 and minute == 0):
-            try:
-                print("⏰ 自动更新天气图...")
-                weather.run()  # 运行你的爬虫
-                print("✅ 更新完成！")
-            except Exception as e:
-                print("❌ 更新失败：", e)
+#         # 早上8点 或 下午15点 → 自动更新
+#         if (hour == 8 and minute == 0) or (hour == 15 and minute == 0):
+#             try:
+#                 print("⏰ 自动更新天气图...")
+#                 weather.run()  # 运行你的爬虫
+#                 print("✅ 更新完成！")
+#             except Exception as e:
+#                 print("❌ 更新失败：", e)
 
-        time.sleep(60)  # 每分钟检查一次时间
+#         time.sleep(60)  # 每分钟检查一次时间
 
-# 后台启动自动任务
-threading.Thread(target=auto_update_weather, daemon=True).start()
+# # 后台启动自动任务
+# threading.Thread(target=auto_update_weather, daemon=True).start()
 
 HTML_TPL = '''
 <!DOCTYPE html>
