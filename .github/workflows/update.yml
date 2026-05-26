@@ -2,19 +2,20 @@ name: 自动更新天气图
 
 on:
   schedule:
-    - cron: "0 0 * * *"    # 北京时间 8:00
-    - cron: "0 7 * * *"    # 北京时间 15:00
+    - cron: "0 0 * * *"   # UTC 0:00 → 北京时间 08:00
+    - cron: "0 7 * * *"   # UTC 7:00  → 北京时间 15:00
   workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 关键：给 token 写权限，否则定时时推不上去
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 配置 Git 身份
         run: |
@@ -34,7 +35,7 @@ jobs:
       - name: 运行爬虫
         run: python weather.py
 
-      - name: 提交并推送（解决冲突的关键步骤）
+      - name: 提交并推送
         uses: EndBug/add-and-commit@v9
         with:
           message: "自动更新天气图"
