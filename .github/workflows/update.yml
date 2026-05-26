@@ -10,11 +10,16 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取最新代码
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 配置 Git 身份
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
       - name: 设置Python
         uses: actions/setup-python@v5
@@ -29,14 +34,9 @@ jobs:
       - name: 运行爬虫
         run: python weather.py
 
-      - name: 拉取远程更新（解决冲突）
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git pull origin main --rebase
-
-      - name: 提交并推送
-        uses: ad-m/github-push-action@master
+      - name: 提交并推送（解决冲突的关键步骤）
+        uses: EndBug/add-and-commit@v9
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: main
+          message: "自动更新天气图"
+          add: "."
+          push: true
