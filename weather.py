@@ -4,6 +4,7 @@ import os
 
 # ========== 基准配置（今日2026-05-20 校准完毕） ==========
 BASE_DATE = datetime.date(2026, 5, 20)
+
 # 四大编号序列
 BASE_NUM = {
     "pcp": 5072,        # 历史降水/降水距平
@@ -12,7 +13,7 @@ BASE_NUM = {
     "fcst_tmp": 3078    # 未来气温距平
 }
 
-# ===================== 这里只修改区域简写 =====================
+# ===================== 区域简写 =====================
 AREA_CODE = {
     "北美": "na",
     "巴西": "br",
@@ -25,70 +26,74 @@ AREA_CODE = {
     "印度": "in",
     "非洲": "af"
 }
-# ==============================================================
 
 # 图片模板库（通用模板，替换区域缩写即可）
 IMG_TPLS = [
     # 历史降水
-    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_{}_7day_{}.png","name":"过去7天降雨"},
-    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_{}_14day_{}.png","name":"过去14天降雨"},
-    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_{}_30day_{}.png","name":"过去30天降雨"},
+    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_{}_7day_{}.png", "name": "过去7天降雨"},
+    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_{}_14day_{}.png", "name": "过去14天降雨"},
+    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_{}_30day_{}.png", "name": "过去30天降雨"},
     # 历史降水距平
-    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_anom_{}_14day_{}.png","name":"过去14天降雨距平"},
-    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_anom_{}_30day_{}.png","name":"过去30天降雨距平"},
+    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_anom_{}_14day_{}.png", "name": "过去14天降雨距平"},
+    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_anom_{}_30day_{}.png", "name": "过去30天降雨距平"},
     # 历史最高温距平
-    {"type":"tmax_anom","tpl":"https://www.worldagweather.com/pastwx/pasttmax_anom_{}_7day_{}.png","name":"过去7天最高温距平"},
-    {"type":"tmax_anom","tpl":"https://www.worldagweather.com/pastwx/pasttmax_anom_{}_14day_{}.png","name":"过去14天最高温距平"},
+    {"type": "tmax_anom", "tpl": "https://www.worldagweather.com/pastwx/pasttmax_anom_{}_7day_{}.png", "name": "过去7天最高温距平"},
+    {"type": "tmax_anom", "tpl": "https://www.worldagweather.com/pastwx/pasttmax_anom_{}_14day_{}.png", "name": "过去14天最高温距平"},
     # 未来降水
-    {"type":"fcst_pcp","tpl":"https://www.worldagweather.com/fcstwx/pcp_ens_day7_q50_{}_{}.png","name":"未来1-7天降雨"},
-    {"type":"fcst_pcp","tpl":"https://www.worldagweather.com/fcstwx/pcp_ens_day8_q50_{}_{}.png","name":"未来8-14天降雨"},
-    {"type":"fcst_pcp","tpl":"https://www.worldagweather.com/fcstwx/pcp_ens_anom_q50_{}_{}.png","name":"未来14天降水距平"},
+    {"type": "fcst_pcp", "tpl": "https://www.worldagweather.com/fcstwx/pcp_ens_day7_q50_{}_{}.png", "name": "未来1-7天降雨"},
+    {"type": "fcst_pcp", "tpl": "https://www.worldagweather.com/fcstwx/pcp_ens_day8_q50_{}_{}.png", "name": "未来8-14天降雨"},
+    {"type": "fcst_pcp", "tpl": "https://www.worldagweather.com/fcstwx/pcp_ens_anom_q50_{}_{}.png", "name": "未来14天降水距平"},
     # 未来气温距平
-    {"type":"fcst_tmp","tpl":"https://www.worldagweather.com/fcstwx/tmp_gefs_day7_{}_{}.png","name":"未来1-7天气温距平"},
-    {"type":"fcst_tmp","tpl":"https://www.worldagweather.com/fcstwx/tmp_gefs_day8_{}_{}.png","name":"未来8-14天气温距平"},
+    {"type": "fcst_tmp", "tpl": "https://www.worldagweather.com/fcstwx/tmp_gefs_day7_{}_{}.png", "name": "未来1-7天气温距平"},
+    {"type": "fcst_tmp", "tpl": "https://www.worldagweather.com/fcstwx/tmp_gefs_day8_{}_{}.png", "name": "未来8-14天气温距平"},
 ]
 
-# 根目录
 ROOT_DIR = "全球天气图集"
 
-# 计算偏移天数
-today = datetime.date.today()
-day_off = (today - BASE_DATE).days
-print(f"基准日期:{BASE_DATE} 今日:{today} 偏移天数:{day_off}\n")
+# ---------- 计算偏移天数（强制使用北京时间）----------
+def get_today_beijing():
+    """返回北京时间（UTC+8）的当前日期"""
+    utc_now = datetime.datetime.utcnow()
+    beijing_now = utc_now + datetime.timedelta(hours=8)
+    return beijing_now.date()
+
+today_beijing = get_today_beijing()
+day_off = (today_beijing - BASE_DATE).days
+
+print(f"基准日期: {BASE_DATE}")
+print(f"北京时间: {today_beijing}")
+print(f"偏移天数: {day_off}\n")
 
 success = 0
 fail = 0
 total = 0
 
-# 遍历所有区域+所有图片类型
+# 遍历所有区域 + 所有图片类型
 for area_name, area_suffix in AREA_CODE.items():
     print(f"========== 开始下载【{area_name}】 ==========")
     for item in IMG_TPLS:
         total += 1
-        # 获取对应序列编号
         num = BASE_NUM[item["type"]] + day_off
-        # 拼接完整链接
         url = item["tpl"].format(area_suffix, num)
-        # 保存路径
         save_path = os.path.join(ROOT_DIR, area_name, f"{item['name']}.png")
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         try:
             res = requests.get(url, timeout=15)
-            res.raise_for_status()
+            res.raise_for_status()          # 非200状态码会抛出异常
             with open(save_path, "wb") as f:
                 f.write(res.content)
             print(f"✅ {item['name']} 下载完成")
             success += 1
-        except:
-            print(f"❌ {item['name']} 下载失败")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ {item['name']} 下载失败，请求错误: {e}")
+            fail += 1
+        except Exception as e:
+            print(f"❌ {item['name']} 下载失败，未知错误: {e}")
             fail += 1
 
 print("\n=====================================")
 print(f"全部任务结束 | 总计:{total} 张 | 成功:{success} | 失败:{fail}")
-print(f"文件存放根目录：{os.path.abspath(ROOT_DIR)}")
+print(f"文件存放根目录: {os.path.abspath(ROOT_DIR)}")
 
-def run():
-    # 把你原来“运行爬虫”的所有代码 放到这里面
-    # 例如：
-    main()  # 如果你原来有 main() 就写这个
+# 注意：原来无用的 run() 函数已删除
