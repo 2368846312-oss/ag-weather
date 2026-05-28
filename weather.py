@@ -1,6 +1,8 @@
 import requests
 import datetime
 import os
+import time  # 【修复1】补上缺失的模块
+from zoneinfo import ZoneInfo  # 【修复2】正确时区（Python3.9+）
 
 # ========== 基准配置（今日2026-05-20 校准完毕） ==========
 BASE_DATE = datetime.date(2026, 5, 20)
@@ -50,51 +52,58 @@ IMG_TPLS = [
 
 ROOT_DIR = "全球天气图集"
 
-# ---------- 计算偏移天数（强制使用北京时间）----------
+# ---------- 【修复3】正确北京时间，永不跨天错乱 ----------
 def get_today_beijing():
-    """返回北京时间（UTC+8）的当前日期"""
-    utc_now = datetime.datetime.utcnow()
-    beijing_now = utc_now + datetime.timedelta(hours=8)
+    beijing_tz = ZoneInfo("Asia/Shanghai")
+    beijing_now = datetime.datetime.now(beijing_tz)
     return beijing_now.date()
 
 today_beijing = get_today_beijing()
 day_off = (today_beijing - BASE_DATE).days
 
+# 打印日志，方便排查
+print("="*50)
 print(f"基准日期: {BASE_DATE}")
 print(f"北京时间: {today_beijing}")
-print(f"偏移天数: {day_off}\n")
+print(f"偏移天数: {day_off}")
+print(f"当前时间戳: {int(time.time()*1000)}")
+print("="*50 + "\n")
 
 success = 0
 fail = 0
 total = 0
 
-# 遍历所有区域 + 所有图片类型
+# 遍历下载
 for area_name, area_suffix in AREA_CODE.items():
-    print(f"========== 开始下载【{area_name}】 ==========")
+    print(f"\n========== 开始下载【{area_name}】 ==========")
     for item in IMG_TPLS:
         total += 1
         num = BASE_NUM[item["type"]] + day_off
-        # url = item["tpl"].format(area_suffix, num)
+        
+        # 【修复4】强制不缓存，每次都拿最新图
         url = item["tpl"].format(area_suffix, num) + f"?t={int(time.time()*1000)}"
         save_path = os.path.join(ROOT_DIR, area_name, f"{item['name']}.png")
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         try:
-            res = requests.get(url, timeout=15)
-            res.raise_for_status()          # 非200状态码会抛出异常
+            # 【修复5】增加请求头，模拟浏览器，防止被拦截
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+            res = requests.get(url, headers=headers, timeout=20)
+            res.raise_for_status()
+
             with open(save_path, "wb") as f:
                 f.write(res.content)
+
             print(f"✅ {item['name']} 下载完成")
             success += 1
+
         except requests.exceptions.RequestException as e:
-            print(f"❌ {item['name']} 下载失败，请求错误: {e}")
-            fail += 1
-        except Exception as e:
-            print(f"❌ {item['name']} 下载失败，未知错误: {e}")
+            print(f"❌ {item['name']} 下载失败 | {str(e)[:50]}...")
             fail += 1
 
-print("\n=====================================")
-print(f"全部任务结束 | 总计:{total} 张 | 成功:{success} | 失败:{fail}")
-print(f"文件存放根目录: {os.path.abspath(ROOT_DIR)}")
-
-# 注意：原来无用的 run() 函数已删除
+print("\n" + "="*50)
+print(f"任务完成 | 总计：{total} 张 | 成功：{success} | 失败：{fail}")
+print(f"文件保存路径：{os.path.abspath(ROOT_DIR)}")
+print("="*50)
