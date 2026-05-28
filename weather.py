@@ -74,7 +74,8 @@ for area_name, area_suffix in AREA_CODE.items():
     for item in IMG_TPLS:
         total += 1
         num = BASE_NUM[item["type"]] + day_off
-        url = item["tpl"].format(area_suffix, num)
+        # url = item["tpl"].format(area_suffix, num)
+        url = item["tpl"].format(area_suffix, num) + f"?t={int(time.time()*1000)}"
         save_path = os.path.join(ROOT_DIR, area_name, f"{item['name']}.png")
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
