@@ -3,7 +3,7 @@ import os
 import time
 import threading
 from datetime import datetime
-import weather  # 直接调用你的爬虫
+
 
 # 关键：指定静态文件根目录，让Render能正确找到图片
 app = Flask(__name__)
@@ -19,7 +19,6 @@ AREA_TO_CN = {
     "澳洲": "澳洲",
     "东南亚": "东南亚",
     "西亚": "西亚",
-    "非洲": "非洲",
     "加拿大": "加拿大",
     "俄罗斯": "俄罗斯",
     "乌克兰": "乌克兰",
@@ -27,7 +26,10 @@ AREA_TO_CN = {
     "哥伦比亚": "哥伦比亚",
     "科特迪瓦": "科特迪瓦",
     "加纳": "加纳",
-    "厄瓜多尔": "厄瓜多尔"
+    "厄瓜多尔": "厄瓜多尔",
+    "印度尼西亚":"印度尼西亚",
+    "马来西亚":"马来西亚",
+    "尼日利亚":"尼日利亚"
 }
 
 # ============ 2. 作物代码 → 中文 ============
@@ -40,10 +42,15 @@ CROP_CODE_TO_CN = {
     "sugarcane": "甘蔗",
     "sugarbeet": "甜菜",
     "coffee": "咖啡",
-    "cocoa": "可可"
+    "cocoa": "可可",
+    "wheat": "小麦",
+    "sorghum": "高粱",
+    "barley": "大麦",
+    "peanut": "花生",
+    "palm": "棕榈油"
 }
 
-# ============ 3. 国家代码 → 天气文件夹（南美全部改为巴西，西非改为非洲） ============
+# ============ 3. 国家代码 → 天气文件夹（严格按你要求） ============
 WEATHER_MAP = {
     "US": "北美",
     "BR": "巴西",
@@ -56,10 +63,15 @@ WEATHER_MAP = {
     "RU": "西亚",
     "UA": "欧盟",
     "VN": "东南亚",
-    "CO": "巴西",    # 哥伦比亚 → 巴西
-    "CI": "非洲",    # 科特迪瓦 → 非洲
-    "GH": "非洲",    # 加纳 → 非洲
-    "EC": "巴西"     # 厄瓜多尔 → 巴西
+    "CO": "南美",
+    "CI": "西非",
+    "GH": "西非",
+    "EC": "南美",
+    "NG": "非洲",
+    "PK": "印度",
+# 新增棕榈油主产国映射
+    "MY": "东南亚",   # 马来西亚 → 东南亚天气图集
+    "ID": "东南亚"    # 印尼 → 东南亚天气图集
 }
 
 # 获取当前 main.py 所在的根目录（核心！）
@@ -192,6 +204,11 @@ HTML_TPL = '''
             <option value="sugarbeet">甜菜</option>
             <option value="coffee">咖啡</option>
             <option value="cocoa">可可</option>
+            <option value="wheat">小麦</option>
+            <option value="sorghum">高粱</option>
+            <option value="barley">大麦</option>
+            <option value="peanut">花生</option>
+            <option value="palm">棕榈油</option>
         </select>
     </div>
 
@@ -200,8 +217,8 @@ HTML_TPL = '''
 
     <div class="map-box">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 17.68 964 924.64" id="worldMap">
-            
-        
+
+    
     <path d="M957.93,483.21L957.87,482.97L957.95,483.08Z" fill="#dadada" stroke="#fff" stroke-width="0.5" id="TV" data-name="Tuvalu"/>
     <path d="M489.23,634.12L488.92,634.14L488.98,633.9L489.28,633.9Z" fill="#dadada" stroke="#fff" stroke-width="0.5" id="BV" data-name="Bouvet Island"/>
     <path d="M465.77,356.76L465.76,356.93L465.72,356.88L465.72,356.82Z" fill="#dadada" stroke="#fff" stroke-width="0.5" id="GI" data-name="Gibraltar"/>
@@ -634,9 +651,9 @@ const cropPhenology = {
             ]
         }
     },
-        sugarcane: {
-            name: "甘蔗",
-            countries: {
+    sugarcane: {
+        name: "甘蔗",
+        countries: {
             "BR": [
                 {"months": [9,10,11,12,1,2,3,4], "stage":"关键生长期", "suitable":"25~32℃，需水极大", "risk":"<20℃：伸长停滞，节间短；>38℃且降水<20mm：生长受严重抑制，茎细低产；降水<20mm：产量大减；降水>200mm：长期积水，根系缺氧，倒伏"},
                 {"months": [4,5,6,7,8,9,10,11], "stage":"榨季", "suitable":"凉爽干燥，温差>10℃", "risk":"<10℃：蔗糖分转化受阻；>32℃且降水<10mm：呼吸消耗大，糖分积累不佳；降水<5mm：有利糖分积累；降水>80mm：蔗糖分下降，倒伏增加"}
@@ -663,8 +680,9 @@ const cropPhenology = {
                 { months:[9], stage:"糖分积累期", suitable:"12~18℃，昼夜温差大，干燥", risk:"＜8℃：糖分积累停滞；＞28℃：呼吸消耗大，含糖率下降；降水＜10mm：利于增糖；降水＞60mm：块根含水高，含糖降低" },
                 { months:[10,11], stage:"收获期", suitable:"晴朗干燥，5~15℃", risk:"＜0℃：霜冻冻害，块根变质；＞25℃：无影响；降水＜5mm：利于收获；降水＞50mm：土壤泥泞，收获困难，块根易烂" }
             ]
-        }
+         }
     },
+
     coffee: {
         name: "咖啡",
         countries: {
@@ -706,6 +724,144 @@ const cropPhenology = {
                 { months:[5,6,7,8], stage:"收获期", suitable:"干燥少雨，22~30℃，利于采摘", risk:"<15℃：成熟慢；>35℃：品质影响；降水<5mm：极利收获；降水>80mm：霉变，收获受阻" }
             ]
         }
+    },
+    wheat: {
+        name: "小麦",
+        countries: {
+            CN: [
+                {months:[10], stage:"播种出苗", suitable:"气温15~18℃，土壤湿度65%~75%", risk:"<8℃出苗迟缓分蘖不足；>25℃少雨旺长抗寒下降；少雨出苗困难；多雨烂种播期推迟"},
+                {months:[11,12,1,2], stage:"分蘖越冬", suitable:"日均温0~5℃，积雪保温土壤封冻", risk:"<-8℃无积雪死苗暴增；>8℃多雨冻融根拔死苗；少雨无灌溉干旱死苗；多雨田间积水渍害"},
+                {months:[2,3,4], stage:"返青拔节", suitable:"日均温12~18℃，光照足水分适中", risk:"<5℃返青延迟穗分化受阻；>28℃少雨徒长易倒伏；少雨有效穗数不足；多雨渍害纹枯病重"},
+                {months:[4,5], stage:"抽穗扬花", suitable:"日均温16~22℃，晴朗微风湿度60%~70%", risk:"<10℃花粉不育结实率大降；>30℃少雨高温逼熟小花败育；少雨结实率低；多雨赤霉病暴发"},
+                {months:[5,6], stage:"灌浆成熟", suitable:"日均温20~24℃，光照足水分适中", risk:"<15℃灌浆慢千粒重低；>30℃少雨干热风逼熟粒重骤降；少雨干旱逼熟；多雨穗发芽赤霉病"},
+                {months:[6], stage:"收获期", suitable:"晴朗干燥22~28℃", risk:"<15℃多雨成熟延迟霉变；>35℃落粒损失；少雨极利收获；多雨穗发芽霉变严重"}
+            ],
+            EU: [
+                {months:[9,10], stage:"播种出苗", suitable:"气温14~18℃，土壤湿润", risk:"<6℃出苗慢冬前弱苗；少雨出苗不齐；多雨渍涝推迟播种"},
+                {months:[11,12,1,2], stage:"分蘖越冬", suitable:"日均温0~5℃，积雪覆盖", risk:"<-10℃无积雪冻害死苗；>10℃阴雨耗养分抗冻下降；少雨冬旱伤根；多雨偏暖渍涝根腐"},
+                {months:[3,4], stage:"返青拔节", suitable:"日均温10~15℃，水分均匀", risk:"<3℃返青延迟；>25℃少雨旺长倒伏；少雨穗数不足；多雨渍害病害累积"},
+                {months:[5,6], stage:"抽穗扬花", suitable:"日均温16~22℃，晴朗无大雨", risk:"<10℃结实率下降；>28℃少雨高温干热穗粒减少；少雨授粉受影响；多雨赤霉病风险"},
+                {months:[6,7], stage:"灌浆成熟", suitable:"日均温20~25℃，光照充足", risk:"<15℃灌浆缓慢；>30℃少雨干热风逼熟；少雨粒重降低；多雨穗发芽品质下降"},
+                {months:[7,8], stage:"收获期", suitable:"晴朗干燥22~28℃", risk:"<15℃多雨收获延迟霉变；>35℃落粒；少雨收获极佳；多雨穗发芽毒素超标"}
+            ],
+            US: [
+                {months:[9,10], stage:"播种出苗", suitable:"气温15~20℃，土壤湿度良好", risk:"<8℃苗弱分蘖少；>30℃土壤失墒；少雨出苗差；多雨烂种"},
+                {months:[11,12,1,2], stage:"分蘖越冬", suitable:"日均温0~8℃，积雪保护", risk:"<-12℃无积雪严重冻害；>10℃多雨徒长耗养分；少雨冬旱死苗；多雨渍涝"},
+                {months:[3,4], stage:"返青拔节", suitable:"日均温12~18℃，降水适中", risk:"<5℃返青延迟；>28℃少雨穗分化不良；少雨穗数奠基不足；多雨渍害"},
+                {months:[4,5], stage:"抽穗扬花", suitable:"日均温16~22℃，干燥少雨", risk:"<10℃不育率上升；>30℃少雨小花败育；少雨结实下降；多雨病害高发"},
+                {months:[5,6], stage:"灌浆成熟", suitable:"日均温20~26℃，光照充足", risk:"<15℃灌浆变慢；>32℃少雨干热风逼熟；少雨粒重减少；多雨穗发芽"},
+                {months:[6,7], stage:"收获期", suitable:"干燥晴朗24~30℃", risk:"<15℃多雨收获延迟霉变；>38℃落粒；少雨收获极佳；多雨穗发芽"}
+            ],
+            IN: [
+                {months:[10,11], stage:"播种出苗", suitable:"气温18~24℃，土壤水分适中", risk:"<10℃出苗缓慢；>32℃土壤干旱；少雨缺苗需灌溉；多雨渍涝"},
+                {months:[12,1], stage:"分蘖营养生长", suitable:"日均温12~20℃，光照足灌溉充足", risk:"<5℃分蘖停止；>28℃旺长耗水；少雨依赖灌溉；多雨湿害"},
+                {months:[2,3], stage:"抽穗扬花", suitable:"日均温15~22℃，天气晴朗", risk:"<8℃结实率下降；>30℃少雨花粉活力降低；少雨需灌溉；多雨病害多发"},
+                {months:[3,4], stage:"灌浆成熟", suitable:"日均温20~28℃，气候干燥", risk:"<15℃灌浆缓慢；>35℃少雨干热风逼熟粒重骤降；少雨利于灌浆；多雨穗发芽"},
+                {months:[4], stage:"收获期", suitable:"晴朗干燥25~32℃", risk:"<15℃影响极小；>38℃落粒；少雨收获极佳；多雨霉变穗发芽"}
+            ],
+            RU: [
+                {months:[8,9], stage:"播种出苗", suitable:"气温14~18℃，土壤底墒充足", risk:"<6℃出苗极慢分蘖不足；>28℃少雨干旱出苗不齐；少雨出苗困难基本苗不足；多雨渍涝烂种推迟播期"},
+                {months:[10,11,12,1,2,3], stage:"分蘖越冬", suitable:"日均温-3~-8℃稳定封冻，积雪≥15cm", risk:"<-15℃无积雪分蘖节冻死死苗过半；>5℃多雨冻融根拔死苗；少雨无积雪根系干枯；多雨低温积水结冰窒息死苗"},
+                {months:[4,5], stage:"返青拔节", suitable:"日均温10~15℃，融雪后水分充足", risk:"<3℃返青严重延迟穗数不足；>25℃少雨春旱分蘖退化；少雨穗分化受阻；多雨渍害根系缺氧"},
+                {months:[5,6], stage:"抽穗扬花", suitable:"日均温16~22℃，晴朗微风水分适中", risk:"<10℃花粉败育结实大降；>30℃少雨高温干旱小花不育；少雨结实率降低；多雨阴雨赤霉病风险"},
+                {months:[6,7], stage:"灌浆成熟", suitable:"日均温20~26℃，光照足水分适中", risk:"<15℃灌浆慢千粒重低；>32℃少雨干热风逼熟粒重骤降；少雨干旱减产降质；多雨穗发芽赤霉病暴发"},
+                {months:[7,8], stage:"收获期", suitable:"晴朗干燥22~30℃", risk:"<12℃多雨收获延迟穗上霉变；>35℃落粒损失；少雨极利收获；多雨穗发芽品质下降"}
+            ]
+        }
+    },
+    sorghum: {
+        name: "高粱",
+        countries: {
+            US: [
+                {months:[5,6], stage:"播种出苗", suitable:"地温≥16℃，土壤湿度适中", risk:"<12℃出苗慢烂种；>38℃土壤蒸发快出苗不齐；少雨出苗困难；多雨土壤板结烂种"},
+                {months:[6,7], stage:"拔节孕穗", suitable:"日均温25~30℃，需水量增加", risk:"<18℃生育迟缓穗分化不良；>38℃少雨穗小粒少；少雨干旱胁迫；多雨严重渍涝"},
+                {months:[7,8], stage:"抽穗开花", suitable:"日均温25~32℃，晴朗微风", risk:"<16℃花粉活力下降；>38℃少雨花粉失活结实大降；少雨花而不实；多雨阴雨授粉不良"},
+                {months:[8,9], stage:"灌浆成熟", suitable:"日均温22~28℃，干燥少雨", risk:"<15℃灌浆变慢；>35℃少雨高温逼熟粒重偏轻；少雨利于灌浆；多雨穗部霉烂"},
+                {months:[9,10,11], stage:"收获期", suitable:"气候干燥15~28℃", risk:"<10℃成熟变慢；>35℃落粒；少雨收获极佳；多雨穗发芽霉变"}
+            ],
+            NG: [
+                {months:[5,6], stage:"播种出苗", suitable:"雨季起始气温25~30℃", risk:"<18℃出苗差；>38℃土壤干旱；少雨出苗不齐；多雨雨水冲刷烂种"},
+                {months:[7], stage:"拔节孕穗", suitable:"日均温25~32℃，雨水充沛", risk:"<20℃生长发育缓慢；>38℃少雨穗发育受阻；少雨干旱胁迫；多雨严重渍涝"},
+                {months:[8,9], stage:"抽穗开花", suitable:"日均温24~30℃，天气偏干燥", risk:"<18℃花粉不育；>38℃少雨结实率下降；少雨干旱影响授粉；多雨阴雨授粉不良"},
+                {months:[9,10], stage:"灌浆成熟", suitable:"日均温22~28℃，雨量渐少", risk:"<15℃灌浆缓慢；>36℃少雨高温逼熟；少雨利于灌浆；多雨穗部霉烂"},
+                {months:[10,11,12], stage:"收获期", suitable:"进入旱季气候干燥", risk:"<12℃影响很小；>38℃品质下降；少雨收获极佳；多雨霉变"}
+            ],
+            BR: [
+                {months:[9,10,11], stage:"播种出苗", suitable:"地温≥16℃，雨季开始土壤水分充足", risk:"<12℃出苗极慢缺苗断垄；>38℃蒸发剧烈出苗不齐；降水<10mm出苗困难苗不足；降水>120mm渍涝烂种推迟播期"},
+                {months:[11,12], stage:"拔节孕穗", suitable:"日均温25~32℃，雨水充沛光照足", risk:"<18℃生育迟缓穗分化不良；>38℃少雨穗小粒少；降水<15mm干旱植株矮小；降水>120mm渍涝根系缺氧"},
+                {months:[12,1], stage:"抽穗开花", suitable:"日均温25~32℃，干燥少雨利授粉", risk:"<16℃花粉活力降结实率降低；>38℃少雨花粉失活大面积不实；降水<10mm花而不实；降水>80mm阴雨冲刷花粉授粉不良"},
+                {months:[2,3], stage:"灌浆成熟", suitable:"日均温22~28℃，雨量递减干燥利灌浆", risk:"<15℃灌浆慢千粒重低；>35℃少雨高温逼熟粒重减轻；降水<10mm利于灌浆；降水>60mm穗霉烂籽粒发芽"},
+                {months:[3,4,5], stage:"收获期", suitable:"旱季晴朗干燥15~28℃", risk:"<10℃成熟延迟籽粒含水量高；>35℃落粒损失增加；降水<5mm极利收获晾晒；降水>50mm穗发芽霉变机械难作业"}
+            ]
+        }
+    },
+    barley: {
+        name: "大麦",
+        countries: {
+            EU: [
+                {months:[9,10], stage:"播种出苗", suitable:"气温12~16℃，土壤湿润", risk:"<6℃出苗缓慢；少雨出苗不齐；多雨烂种"},
+                {months:[11,12,1,2], stage:"分蘖越冬", suitable:"日均温0~5℃，积雪覆盖", risk:"<-8℃无积雪冻害死苗；>10℃阴雨消耗养分；少雨冬旱伤根；多雨渍涝根腐"},
+                {months:[3,4], stage:"返青拔节", suitable:"日均温10~15℃，水分均匀", risk:"<3℃返青延迟；>25℃少雨旺长倒伏；少雨穗数不足；多雨病害加重"},
+                {months:[5,6], stage:"抽穗扬花", suitable:"日均温15~20℃，晴朗少雨", risk:"<8℃不育率上升；>28℃少雨结实率下降；少雨干旱胁迫；多雨赤霉病风险"},
+                {months:[6,7], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足", risk:"<12℃灌浆缓慢；>30℃少雨高温逼熟粒重降低；少雨粒重不足；多雨穗发芽"},
+                {months:[7,8], stage:"收获期", suitable:"晴朗干燥20~28℃", risk:"<12℃多雨收获延迟霉变；>35℃落粒；少雨收获极佳；多雨穗发芽"}
+            ],
+            RU: [
+                {months:[4,5], stage:"播种出苗", suitable:"地温5~8℃，土壤解冻湿润", risk:"<3℃烂种；>28℃土壤失墒快；少雨出苗差；多雨渍涝"},
+                {months:[5,6], stage:"分蘖拔节", suitable:"日均温12~20℃，水分充足", risk:"<8℃分蘖偏少；>30℃少雨穗分化受阻；少雨干旱；多雨湿害严重"},
+                {months:[6,7], stage:"抽穗扬花", suitable:"日均温16~22℃，天气晴朗", risk:"<10℃不育率升高；>30℃少雨结实率下降；少雨干旱；多雨病害多发"},
+                {months:[7,8], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足", risk:"<12℃灌浆缓慢；>32℃少雨高温逼熟；少雨粒重降低；多雨穗发芽"},
+                {months:[8,9], stage:"收获期", suitable:"气候干燥15~25℃", risk:"<8℃成熟延迟；>30℃落粒；少雨收获极佳；多雨霉变"}
+            ],
+            AU: [
+                {months:[5,6], stage:"播种出苗", suitable:"气温12~18℃，秋雨来临土壤湿润", risk:"<5℃出苗极慢冬前苗弱；>28℃土壤失墒快出苗不齐；降水<10mm出苗困难缺苗严重；降水>70mm渍涝烂种推迟播期"},
+                {months:[6,7,8], stage:"分蘖营养生长", suitable:"日均温8~14℃，冬季温和降水均匀", risk:"<2℃严重冻伤叶片分蘖停滞；降水<10mm冬旱分蘖减少；降水>60mm湿害根系发育不良渍涝"},
+                {months:[8,9], stage:"拔节孕穗", suitable:"日均温12~18℃，水分需求增加", risk:"<6℃节间伸长受阻幼穗受抑；>28℃少雨穗分化不良；降水<15mm春旱有效穗减少；降水>70mm渍涝倒伏风险上升"},
+                {months:[9,10], stage:"抽穗扬花", suitable:"日均温14~20℃，晴朗少雨微风", risk:"<6℃花粉败育结实率骤降；>30℃少雨高温胁迫小花不育；降水<10mm干旱结实下降；降水>50mm阴雨授粉差赤霉病高发"},
+                {months:[10,11], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足天气干燥", risk:"<10℃灌浆缓慢千粒重不足；>32℃少雨干热风逼熟粒重骤降；降水<10mm利灌浆需防持续干旱；降水>50mm穗发芽霉变品质下降"},
+                {months:[11,12], stage:"收获期", suitable:"晴朗干燥20~30℃", risk:"<8℃成熟延迟收获推后；>35℃落粒损失增加；降水<5mm极利收获晾晒；降水>40mm穗发芽霉变机械无法下地"}
+            ]
+        }
+    },
+    peanut: {
+        name: "花生",
+        countries: {
+            CN: [
+                {months:[4,5], stage:"播种出苗", suitable:"地温≥15℃，土壤湿度60%~70%", risk:"<12℃烂种出苗极差；>35℃干旱出苗不齐；少雨出苗困难；多雨烂种"},
+                {months:[6,7], stage:"开花下针", suitable:"日均温23~28℃，水分适中", risk:"<18℃开花减少下针受阻；>35℃少雨花粉败育果针难入土；少雨干旱下针率低；多雨渍涝花腐病"},
+                {months:[7,8], stage:"荚果发育", suitable:"日均温25~30℃，水分需求最大", risk:"<20℃荚果发育停滞；>35℃少雨秕果率高；少雨干旱空壳多；多雨烂果黄曲霉风险"},
+                {months:[8,9], stage:"成熟收获", suitable:"干燥少雨20~28℃", risk:"<15℃成熟延迟；>35℃落果断针；少雨极利收获；多雨荚果霉烂田间发芽"}
+            ],
+            IN: [
+                {months:[6,7], stage:"播种出苗", suitable:"雨季起始气温25~32℃", risk:"<20℃出苗缓慢；>38℃干旱；少雨出苗不齐；多雨雨水冲刷烂种"},
+                {months:[8,9], stage:"开花下针", suitable:"日均温25~30℃，水分充足", risk:"<20℃开花受阻；>35℃少雨果针难下扎；少雨干旱；多雨渍涝花腐"},
+                {months:[9,10], stage:"荚果发育", suitable:"日均温24~30℃，土壤湿润", risk:"<20℃发育变慢；>35℃少雨秕果增多；少雨空壳率高；多雨烂果"},
+                {months:[10,11,12], stage:"成熟收获", suitable:"进入旱季气候干燥", risk:"<15℃收获延迟；>35℃品质下降；少雨收获极佳；多雨荚果霉烂"}
+            ],
+            US: [
+                {months:[4,5], stage:"播种出苗", suitable:"地温≥18℃，土壤湿度良好", risk:"<15℃烂种；>38℃出苗差；少雨缺苗；多雨渍涝"},
+                {months:[6,7], stage:"开花下针", suitable:"日均温24~30℃，需水增加", risk:"<20℃开花减少；>35℃少雨下针受阻；少雨干旱；多雨花腐病"},
+                {months:[7,8], stage:"荚果发育", suitable:"日均温25~32℃，水分充足", risk:"<20℃发育停滞；>35℃少雨秕果增多；少雨空壳；多雨烂果"},
+                {months:[9,10], stage:"成熟收获", suitable:"干燥少雨", risk:"<15℃收获延迟；>35℃断针落果；少雨收获极佳；多雨霉烂"}
+            ]
+        }
+    },
+    palm: {
+        name: "棕榈油",
+        countries: {
+            ID: [
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"花序分化发育", suitable:"日均温24~30℃，年降雨2000~2500mm无明显旱季", risk:"<20℃花序分化弱雌花减少；>35℃少雨花序败育远期减产；少雨持续干旱长期减产；多雨渍涝根系呼吸受阻"},
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"开花授粉", suitable:"日均温25~30℃，空气湿度高利昆虫授粉", risk:"<18℃花粉活力低坐果差；>35℃少雨花粉失活授粉中断；少雨授粉昆虫少授粉不足；多雨暴雨冲刷花粉授粉不良"},
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"果穗发育成熟", suitable:"日均温24~30℃，降水均匀", risk:"<20℃果穗迟缓含油率下降；>35℃少雨果粒干瘪出油率低；少雨干旱果穗发育差；多雨渍水落果增多"},
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"收获期全年轮收", suitable:"干燥少雨利采摘运输", risk:"<15℃影响不大；>35℃果实酸败游离脂肪酸升高；少雨极利采摘运输；多雨采摘中断果穗腐烂酸败"}
+            ],
+            MY: [
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"花序分化发育", suitable:"日均温24~30℃，降水充沛", risk:"<20℃花序分化不良；>35℃少雨花序败育远期减产；少雨干旱长期减产；多雨渍涝"},
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"开花授粉", suitable:"日均温25~30℃，空气湿度高", risk:"<18℃花粉活力下降；>35℃少雨授粉效果差；少雨授粉昆虫偏少；多雨暴雨冲刷花粉"},
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"果穗发育成熟", suitable:"日均温24~30℃，水分均匀", risk:"<20℃果实含油率降低；>35℃少雨干瘪出油率低；少雨发育不良；多雨落果增加"},
+                {months:[1,2,3,4,5,6,7,8,9,10,11,12], stage:"收获期全年轮收", suitable:"干燥天气利采摘", risk:"<15℃影响很小；>35℃酸败加快；少雨收获极佳；多雨采摘困难运输中断酸败"}
+            ]
+        }
     }
 };
 
@@ -717,8 +873,36 @@ const cropData = {
     cotton: { main: ["CN","IN","US","BR","AU"], sub: ["PK","TR","UZ"], output:{CN:"780万吨",IN:"520万吨",US:"302万吨",BR:"425万吨",AU:"100万吨",PK:"115万吨",TR:"66万吨",UZ:"75万吨"} },
     sugarcane: { main: ["BR","IN","CN","EU"], sub: ["TH"], output:{BR:"4450万吨",IN:"3525万吨",CN:"1150万吨",EU:"1550万吨",TH:"1025万吨"} },
     sugarbeet: { main: ["EU"], sub: [], output:{EU:"10500万吨"} },
-    coffee: { main: ["BR","VN","CO"], sub: [], output:{BR:"4500万袋",VN:"3000万袋",CO:"1400万袋"} },
-    cocoa: { main: ["CI","GH","EC"], sub: [], output:{CI:"210万吨",GH:"110万吨",EC:"85万吨"} }
+    coffee: { main: ["BR","VN","CO"], sub: [], output:{BR:"378万吨",VN:"185万吨",CO:"83万吨"} },
+    cocoa: { main: ["CI","GH","EC"], sub: [], output:{CI:"210万吨",GH:"110万吨",EC:"85万吨"} },
+
+    // ====================== 以下严格按你要求配置 ======================
+    // 小麦：主产 CN,EU,IN,RU,US | 次产 AU,CA,PK,AR
+    wheat: { 
+        main: ["CN","EU","IN","RU","US"], 
+        sub: ["AU","CA","PK","AR"], 
+        output:{CN:"1.4亿吨",EU:"1.45亿吨",IN:"1.18亿吨",RU:"9030万吨",US:"5400万吨",AU:"3600万吨",CA:"3995万吨",PK:"2900万吨",AR:"2800万吨"} 
+    },
+    // 高粱：主产 US | 次产 NG,BR
+    sorghum: { 
+        main: ["US"], 
+        sub: ["NG","BR"], 
+        output:{US:"1100万吨",NG:"650万吨",BR:"520万吨"} 
+    },
+    // 大麦：主产 EU,RU | 次产 AU,CA
+    barley: { 
+        main: ["EU","RU"], 
+        sub: ["AU","CA"], 
+        output:{EU:"5640万吨",RU:"1940万吨",AU:"1630万吨",CA:"970万吨"} 
+    },
+    // 花生：主产 CN | 次产 IN,NG,US
+    peanut: { 
+        main: ["CN"], 
+        sub: ["IN","NG","US"], 
+        output:{CN:"1840万吨",IN:"750万吨",NG:"524万吨",US:"326万吨"} 
+    },
+
+    palm: { main: ["MY","ID"],sub: ["TH"],output:{MY:"2020万吨",ID:"4670万吨",TH:"390万吨"} }
 };
 
 let currentCrop = "soybean";
@@ -775,7 +959,7 @@ document.querySelectorAll("path").forEach(path => {
         const realId = getRealId(id);
         const isEU = EU_COUNTRIES.includes(id);
         const name = isEU ? "European Union" : path.getAttribute("data-name");
-        const cropName = { soybean:"大豆",corn:"玉米",rapeseed:"菜籽",sunflower:"葵籽",cotton:"棉花",sugarcane:"甘蔗",sugarbeet:"甜菜",coffee:"咖啡",cocoa:"可可" }[currentCrop];
+        const cropName = { soybean:"大豆",corn:"玉米",rapeseed:"菜籽",sunflower:"葵籽",cotton:"棉花",sugarcane:"甘蔗",sugarbeet:"甜菜",coffee:"咖啡",cocoa:"可可",wheat:"小麦",sorghum:"高粱",barley:"大麦",peanut:"花生",palm:"棕榈油" }[currentCrop];
         const output = cropData[currentCrop].output[realId] || "无数据";
         tooltip.textContent = `${name}：${cropName} 年产量 ${output}`;
         tooltip.style.left = e.pageX + 10 + "px";
@@ -785,7 +969,7 @@ document.querySelectorAll("path").forEach(path => {
     path.addEventListener("mouseout", () => tooltip.style.display = "none");
 });
 
-// ============ 核心：点击跳转（南美统一改为巴西，西非改为非洲） ============
+// ============ 点击跳转：严格按你要求的天气图集 ============
 document.querySelectorAll("path").forEach(path => {
     path.addEventListener("click", function(){
         let cid = getRealId(this.id.trim());
@@ -793,7 +977,8 @@ document.querySelectorAll("path").forEach(path => {
             US:"北美", BR:"巴西", AR:"阿根廷", EU:"欧盟",
             IN:"印度", CN:"中国", AU:"澳洲",
             CA:"北美", RU:"西亚", UA:"欧盟",
-            VN:"东南亚", CO:"巴西", CI:"非洲", GH:"非洲", EC:"巴西"
+            VN:"东南亚", CO:"南美", CI:"西非", GH:"西非", EC:"南美",
+            NG:"非洲", PK:"印度" , MY:"东南亚",  ID:"东南亚",  TH:"东南亚"// 严格按你要求
         }[cid];
         if(weatherFolder){
             window.open("/weather/"+weatherFolder+"?crop="+currentCrop+"&country="+cid, "_blank");
@@ -823,9 +1008,8 @@ def weather_page(folder):
     country_code = request.args.get("country", "")
     crop_cn = CROP_CODE_TO_CN.get(crop_code, "")
 
-    # 放行现有全部文件夹
-    allow_folder = ["北美", "巴西", "阿根廷", "欧盟", "印度", "中国", "澳洲", "西亚", "东南亚", "非洲"]
-    if folder not in allow_folder:
+    if folder not in ["北美", "巴西", "阿根廷", "欧盟", "印度", "中国", "澳洲", "西亚", "东南亚", "南美", "西非",
+                      "非洲"]:
         return "未找到该地区数据"
 
     target_path = os.path.join(IMG_BASE, folder)
@@ -840,7 +1024,11 @@ def weather_page(folder):
             "CA": "加拿大", "RU": "俄罗斯", "UA": "乌克兰",
             "US": "美国", "BR": "巴西", "AR": "阿根廷",
             "EU": "欧盟", "IN": "印度", "CN": "中国", "AU": "澳洲",
-            "VN": "越南", "CO": "哥伦比亚", "CI": "科特迪瓦", "GH": "加纳", "EC": "厄瓜多尔"
+            "VN": "越南", "CO": "哥伦比亚", "CI": "科特迪瓦", "GH": "加纳",
+            "NG": "尼日利亚", "PK": "巴基斯坦",
+            # 新增棕榈油主产国映射
+            "MY": "马来西亚",
+            "ID": "印度尼西亚"
         }.get(country_code, "")
         if country_cn:
             candidate = f"{country_cn}_{crop_cn}主产区.png"
@@ -891,7 +1079,7 @@ def weather_page(folder):
     <title>{folder} 天气图集</title>
     <style>
         * {{ margin:0; padding:0; box-sizing:border-box; font-family:"Microsoft YaHei", sans-serif; }}
-        body {{ background:#f6f7f9; padding:20px; }}
+        body {{ background:#f67f9; padding:20px; }}
 
         .back-btn {{
             display: block;
