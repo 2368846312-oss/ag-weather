@@ -145,7 +145,7 @@ CROP_PHENOLOGY = {
         "中国": [(10, 11,"播种期"), (12,1,2,"越冬期"), (3, "返青现蕾"), (4, "开花结荚期"), (5, "灌浆成熟"),(6, "收获期")],
         "加拿大": [(4,5,6 ,"播种期"),  (7, "现蕾期"), (8, "开花结荚期"), (9, "灌浆成熟"),(10, "收获期")],
         "欧盟": [(8,9,10, "播种期"), (11,12,1,2,"越冬期"), (3, "返青现蕾"), (4, "开花结荚期"), (5, "灌浆成熟"),(6, "收获期")],
-        "印度": [(10, 11, "播种出苗期"), (12, 1,2 ,"开花结角期"), (3, "灌浆鼓粒期"),(4,5 "收获期")],
+        "印度": [(10, 11, "播种出苗期"), (12, 1,2 ,"开花结角期"), (3, "灌浆鼓粒期"),(4,5, "收获期")],
         "澳大利亚": [(5,6, "播种期"), (7,8, "开花结荚期"), (9, "灌浆成熟"),(10, "收获期")],
     },
     "葵籽": {
@@ -439,7 +439,11 @@ def get_current_stage(crop, country):
     month = datetime.now().month
     pheno = CROP_PHENOLOGY.get(crop, {})
     stages = pheno.get(country, [])
-    for start, end, stage in stages:
+    for stage_info in stages:
+        if len(stage_info) == 4:
+            start, _, end, stage = stage_info
+        else:
+            start, end, stage = stage_info
         if start <= end:
             if start <= month <= end:
                 return stage
@@ -594,10 +598,10 @@ def build_dashboard_data():
         "Santiago del Estero": "圣地亚哥-德尔-埃斯特罗",
         "La Pampa": "???",
         # EU country name EN->CN
-        "France": "\xe6\xb3\x95\xe5\x9b\xbd", "Germany": "\xe5\xbe\xb7\xe5\x9b\xbd", "Poland": "\xe6\xb3\xa2\xe5\x85\xb0",
-        "Spain": "\xe8\xa5\xbf\xe7\x8f\xad\xe7\x89\x99", "Bulgaria": "\xe4\xbf\x9d\xe5\x8a\xa0\xe5\x88\xa9\xe4\xba\x9a", "United Kingdom": "\xe8\x8b\xb1\xe5\x9b\xbd",
-        "Italy": "\xe6\x84\x8f\xe5\xa4\xa7\xe5\x88\xa9", "Czech Republic": "\xe6\x8d\xb7\xe5\x85\x8b", "Hungary": "\xe5\x8c\x88\xe7\x89\x99\xe5\x88\xa9",
-        "Romania": "\xe7\xbd\x97\xe9\xa9\xac\xe5\xb0\xbc\xe4\xba\x9a", "Denmark": "\xe4\xb8\xb9\xe9\xba\xa6",
+        "France": "法国", "Germany": "德国", "Poland": "波兰",
+        "Spain": "西班牙", "Bulgaria": "保加利亚", "United Kingdom": "英国",
+        "Italy": "意大利", "Czech Republic": "捷克", "Hungary": "匈牙利",
+        "Romania": "罗马尼亚", "Denmark": "丹麦",
     }
     dashboard = {}
     for crop, regions in precip.items():
@@ -620,7 +624,7 @@ def build_dashboard_data():
                         if vk[2] == crop and vk[1] == province:
                             vhi_rec = vv
                             break
-            stage_name = get_current_stage(crop, country) or chr(38750) + chr(20027) + chr(29983) + chr(32946) + chr(26399)
+            stage_name = get_current_stage(crop, country) or "非主生育期"
             row = {
                 "crop": crop, "country": "澳洲" if country in ["澳洲", "澳大利亚"] else country, "province": province, "stage": stage_name,
                 "past14": reg["past14"], "future1_7": reg["future1_7"], "future8_14": reg["future8_14"],
@@ -678,6 +682,16 @@ COFFEE_TEMP_DATA = {
 }
 
 DASHBOARD_DATA = build_dashboard_data()
+
+if not DASHBOARD_DATA:
+    print("[WARN] No data loaded. The app will start but data tables will be empty.")
+    print("[INFO] Place the following files in the project root:")
+    print("       - " + PRECIP_FILE)
+    print("       - " + VHI_FILE)
+    print("       - " + IMG_BASE + "/  (weather image folder)")
+    print("       - " + MAP_BASE + "/  (production area map folder)")
+    print("[INFO] Generating sample demo data for dashboard view...")
+    DASHBOARD_DATA = {"大豆": [{"crop":"大豆","country":"美国","province":"伊利诺伊","stage":"开花结荚期","past14":35.0,"future1_7":28.0,"future8_14":32.0,"judge1_text":"正常","judge1_class":"rain-normal","judge2_text":"正常","judge2_class":"rain-normal","latest_vhi":65.2,"vhi_trend":[58.1,60.3,62.5,63.8,64.7,65.2],"vhi_update":"2025-06","growth_text":"生长良好","growth_class":"growth-good","has_vhi":True}]}
 
 HTML_TPL = '''
 <!DOCTYPE html>
