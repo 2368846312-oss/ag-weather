@@ -1,9 +1,10 @@
-from flask import Flask, render_template_string, send_from_directory, request
+from flask import Flask, render_template_string, send_from_directory, request, json
 import os
 import time
+import openpyxl
+import json
 import threading
 from datetime import datetime
-
 
 # 关键：指定静态文件根目录，让Render能正确找到图片
 app = Flask(__name__)
@@ -27,9 +28,9 @@ AREA_TO_CN = {
     "科特迪瓦": "科特迪瓦",
     "加纳": "加纳",
     "厄瓜多尔": "厄瓜多尔",
-    "印度尼西亚":"印度尼西亚",
-    "马来西亚":"马来西亚",
-    "尼日利亚":"尼日利亚"
+    "印度尼西亚": "印度尼西亚",
+    "马来西亚": "马来西亚",
+    "尼日利亚": "尼日利亚"
 }
 
 # ============ 2. 作物代码 → 中文 ============
@@ -63,16 +64,27 @@ WEATHER_MAP = {
     "RU": "西亚",
     "UA": "欧盟",
     "VN": "东南亚",
-    "CO": "南美",
-    "CI": "西非",
-    "GH": "西非",
-    "EC": "南美",
+    "CO": "巴西",
+    "CI": "非洲",
+    "GH": "非洲",
+    "EC": "巴西",
     "NG": "非洲",
     "PK": "印度",
-# 新增棕榈油主产国映射
-    "MY": "东南亚",   # 马来西亚 → 东南亚天气图集
-    "ID": "东南亚"    # 印尼 → 东南亚天气图集
+    # 新增棕榈油主产国映射
+    "MY": "东南亚",  # 马来西亚 → 东南亚天气图集
+    "ID": "东南亚"  # 印尼 → 东南亚天气图集
 }
+
+# ============ 新增：国家代码 → 中文名映射（用于看板过滤） ============
+COUNTRY_CODE_TO_CN = {
+    "US": "美国", "BR": "巴西", "AR": "阿根廷", "CN": "中国",
+    "IN": "印度", "AU": "澳洲", "CA": "加拿大", "RU": "俄罗斯",
+    "UA": "乌克兰", "VN": "越南", "CO": "哥伦比亚", "CI": "科特迪瓦",
+    "GH": "加纳", "EC": "厄瓜多尔", "NG": "尼日利亚", "PK": "巴基斯坦",
+    "MY": "马来西亚", "ID": "印度尼西亚", "TH": "泰国",
+    "EU": "欧盟",
+}
+CN_TO_COUNTRY_CODE = {v: k for k, v in COUNTRY_CODE_TO_CN.items()}
 
 # 获取当前 main.py 所在的根目录（核心！）
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -84,6 +96,591 @@ MAP_BASE = os.path.join(BASE_DIR, "产区图")
 # 关键：启动时自动创建文件夹
 os.makedirs(IMG_BASE, exist_ok=True)
 os.makedirs(MAP_BASE, exist_ok=True)
+
+# ============ 新增：作物每周降雨量阈值（mm/周） ============
+CROP_RAIN_THRESHOLDS = {
+    "大豆": {"lower": 20, "upper": 45},
+    "玉米": {"lower": 25, "upper": 50},
+    "小麦": {"lower": 15, "upper": 35},
+    "菜籽": {"lower": 20, "upper": 40},
+    "葵籽": {"lower": 15, "upper": 35},
+    "棉花": {"lower": 15, "upper": 40},
+    "甘蔗": {"lower": 30, "upper": 60},
+    "甜菜": {"lower": 20, "upper": 40},
+    "咖啡": {"lower": 25, "upper": 60},
+    "可可": {"lower": 30, "upper": 70},
+    "高粱": {"lower": 15, "upper": 35},
+    "大麦": {"lower": 15, "upper": 30},
+    "花生": {"lower": 20, "upper": 40},
+    "棕榈油": {"lower": 30, "upper": 60},
+}
+
+# ============ 新增：作物物候数据（各国每月生长阶段）============
+CROP_PHENOLOGY = {
+    "大豆": {
+        "美国": [(5, 6, "播种出苗期"), (7, 8, "开花结荚期"), (9, 10, "鼓粒成熟期")],
+        "中国": [(5, 6, "播种出苗期"), (7, 8, "开花结荚期"), (9, 10, "鼓粒成熟期")],
+        "巴西": [(10, 11, "播种出苗期"), (12, 1, "开花结荚期"), (2, 3, "鼓粒成熟期")],
+        "阿根廷": [(10, 11, "播种出苗期"), (12, 1, "开花结荚期"), (2, 3, "鼓粒成熟期")],
+    },
+    "玉米": {
+        "美国": [(4, 5, "播种出苗期"), (6, 7, "拔节抽雄期"), (8, 9, "灌浆成熟期")],
+        "中国": [(4, 5, "播种出苗期"), (6, 7, "拔节抽雄期"), (8, 9, "灌浆成熟期")],
+        "巴西": [(9, 10, "播种出苗期"), (11, 12, "拔节抽雄期"), (1, 2, "灌浆成熟期")],
+        "阿根廷": [(9, 10, "播种出苗期"), (11, 12, "拔节抽雄期"), (1, 2, "灌浆成熟期")],
+        "欧盟": [(4, 5, "播种出苗期"), (6, 7, "拔节抽雄期"), (8, 9, "灌浆成熟期")],
+        "乌克兰": [(4, 5, "播种出苗期"), (6, 7, "拔节抽雄期"), (8, 9, "灌浆成熟期")],
+    },
+    "小麦": {
+        "中国": [(3, 4, "返青拔节期"), (5, 5, "抽穗开花期"), (6, 6, "灌浆成熟期")],
+        "欧盟": [(3, 4, "返青拔节期"), (5, 5, "抽穗开花期"), (6, 7, "灌浆成熟期")],
+        "印度": [(11, 12, "播种出苗期"), (1, 2, "拔节抽穗期"), (3, 4, "灌浆成熟期")],
+        "俄罗斯": [(4, 5, "播种出苗期"), (6, 6, "抽穗开花期"), (7, 8, "灌浆成熟期")],
+        "美国": [(4, 5, "播种出苗期"), (6, 6, "抽穗开花期"), (7, 8, "灌浆成熟期")],
+        "加拿大": [(4, 5, "播种出苗期"), (6, 6, "抽穗开花期"), (7, 8, "灌浆成熟期")],
+        "澳大利亚": [(5, 6, "播种出苗期"), (7, 8, "拔节抽穗期"), (9, 10, "灌浆成熟期")],
+        "巴基斯坦": [(11, 12, "播种出苗期"), (1, 2, "拔节抽穗期"), (3, 4, "灌浆成熟期")],
+        "阿根廷": [(5, 6, "播种出苗期"), (7, 8, "拔节抽穗期"), (9, 10, "灌浆成熟期")],
+    },
+    "菜籽": {
+        "中国": [(3, 4, "开花结角期"), (5, 5, "粒塞成熟期")],
+        "加拿大": [(5, 6, "播种出苗期"), (7, 8, "开花结角期"), (9, 9, "成熟期")],
+        "欧盟": [(4, 5, "开花结角期"), (6, 7, "成熟期")],
+        "印度": [(10, 11, "播种出苗期"), (12, 1, "开花结角期"), (2, 3, "成熟期")],
+        "澳大利亚": [(5, 7, "生长期"), (8, 10, "开花结角期"), (11, 12, "成熟期")],
+    },
+    "葵籽": {
+        "乌克兰": [(4, 5, "播种出苗期"), (6, 7, "开花期"), (8, 9, "灌浆成熟期")],
+        "俄罗斯": [(4, 5, "播种出苗期"), (6, 7, "开花期"), (8, 9, "灌浆成熟期")],
+        "欧盟": [(4, 5, "播种出苗期"), (6, 7, "开花期"), (8, 9, "灌浆成熟期")],
+        "阿根廷": [(9, 10, "播种出苗期"), (11, 12, "开花期"), (1, 2, "灌浆成熟期")],
+    },
+    "棉花": {
+        "中国": [(4, 5, "播种出苗期"), (6, 7, "蕾开花铃期"), (8, 9, "吐絮成熟期")],
+        "印度": [(6, 7, "播种出苗期"), (8, 9, "蕾开花铃期"), (10, 11, "吐絮成熟期")],
+        "美国": [(4, 5, "播种出苗期"), (6, 7, "蕾开花铃期"), (8, 9, "吐絮成熟期")],
+        "巴西": [(9, 10, "播种出苗期"), (11, 12, "蕾开花铃期"), (1, 3, "吐絮成熟期")],
+        "澳大利亚": [(10, 11, "播种出苗期"), (12, 1, "蕾开花铃期"), (2, 4, "吐絮成熟期")],
+    },
+    "甘蔗": {"巴西": [(1, 12, "生长期")], "中国": [(1, 12, "生长期")], "印度": [(1, 12, "生长期")]},
+    "甜菜": {"欧盟": [(4, 5, "播种出苗期"), (6, 8, "基部增长期"), (9, 10, "糖分积累期")]},
+    "咖啡": {
+        "哥伦比亚": [(1, 12, "年中开花结果期")],
+        "巴西": [(9, 12, "开花结果期"), (1, 4, "成熟采收期")],
+        "越南": [(1, 12, "年中开花结果期")],
+    },
+    "可可": {"科特迪瓦": [(1, 12, "年中结果期")], "加纳": [(1, 12, "年中结果期")], "厄瓜多尔": [(1, 12, "年中结果期")]},
+    "高粱": {
+        "美国": [(5, 6, "播种出苗期"), (7, 8, "抽穗开花期"), (9, 10, "灌浆成熟期")],
+        "尼日利亚": [(5, 6, "播种出苗期"), (7, 8, "抽穗开花期"), (9, 10, "灌浆成熟期")],
+        "巴西": [(9, 10, "播种出苗期"), (11, 12, "抽穗开花期"), (1, 2, "灌浆成熟期")],
+    },
+    "大麦": {
+        "俄罗斯": [(4, 5, "播种出苗期"), (6, 6, "抽穗开花期"), (7, 8, "灌浆成熟期")],
+        "欧盟": [(3, 4, "返青拔节期"), (5, 5, "抽穗开花期"), (6, 7, "灌浆成熟期")],
+        "澳大利亚": [(5, 6, "播种出苗期"), (7, 8, "拔节抽穗期"), (9, 10, "灌浆成熟期")],
+        "阿根廷": [(5, 6, "播种出苗期"), (7, 8, "拔节抽穗期"), (9, 10, "灌浆成熟期")],
+    },
+    "花生": {
+        "中国": [(4, 5, "播种出苗期"), (6, 7, "开花下针期"), (8, 9, "粒塞成熟期")],
+        "印度": [(6, 7, "播种出苗期"), (8, 9, "开花下针期"), (10, 11, "粒塞成熟期")],
+        "尼日利亚": [(5, 6, "播种出苗期"), (7, 8, "开花下针期"), (9, 10, "粒塞成熟期")],
+        "美国": [(4, 5, "播种出苗期"), (6, 7, "开花下针期"), (8, 9, "粒塞成熟期")],
+    },
+    "棕榈油": {
+        "马来西亚": [(1, 12, "年中结果期")],
+        "印度尼西亚": [(1, 12, "年中结果期")],
+        "泰国": [(1, 12, "年中结果期")],
+    },
+}
+
+# ============ 新增：各生长阶段降雨量阈值 ============
+STAGE_RAIN_THRESHOLDS = {
+    "大豆": {
+        "播种出苗期": {"lower": 15, "upper": 30, "label": "播种出苗期"},
+        "开花结荚期": {"lower": 25, "upper": 45, "label": "开花结荚期"},
+        "鼓粒成熟期": {"lower": 15, "upper": 30, "label": "鼓粒成熟期"},
+    },
+    "玉米": {
+        "播种出苗期": {"lower": 15, "upper": 30, "label": "播种出苗期"},
+        "拔节抽雄期": {"lower": 25, "upper": 50, "label": "拔节抽雄期"},
+        "灌浆成熟期": {"lower": 15, "upper": 35, "label": "灌浆成熟期"},
+    },
+    "小麦": {
+        "播种出苗期": {"lower": 15, "upper": 25, "label": "播种出苗期"},
+        "返青拔节期": {"lower": 15, "upper": 30, "label": "返青拔节期"},
+        "拔节抽穗期": {"lower": 20, "upper": 35, "label": "拔节抽穗期"},
+        "抽穗开花期": {"lower": 20, "upper": 35, "label": "抽穗开花期"},
+        "灌浆成熟期": {"lower": 10, "upper": 25, "label": "灌浆成熟期"},
+    },
+    "菜籽": {
+        "播种出苗期": {"lower": 15, "upper": 25, "label": "播种出苗期"},
+        "开花结角期": {"lower": 20, "upper": 40, "label": "开花结角期"},
+        "粒塞成熟期": {"lower": 15, "upper": 30, "label": "粒塞成熟期"},
+        "成熟期": {"lower": 10, "upper": 25, "label": "成熟期"},
+        "生长期": {"lower": 20, "upper": 35, "label": "生长期"},
+    },
+    "葵籽": {
+        "播种出苗期": {"lower": 15, "upper": 25, "label": "播种出苗期"},
+        "开花期": {"lower": 15, "upper": 35, "label": "开花期"},
+        "灌浆成熟期": {"lower": 10, "upper": 25, "label": "灌浆成熟期"},
+    },
+    "棉花": {
+        "播种出苗期": {"lower": 10, "upper": 25, "label": "播种出苗期"},
+        "蕾开花铃期": {"lower": 20, "upper": 40, "label": "蕾开花铃期"},
+        "吐絮成熟期": {"lower": 10, "upper": 25, "label": "吐絮成熟期"},
+    },
+    "甘蔗": {"生长期": {"lower": 30, "upper": 60, "label": "生长期"}},
+    "甜菜": {
+        "播种出苗期": {"lower": 15, "upper": 25, "label": "播种出苗期"},
+        "基部增长期": {"lower": 20, "upper": 40, "label": "基部增长期"},
+        "糖分积累期": {"lower": 15, "upper": 30, "label": "糖分积累期"},
+    },
+    "咖啡": {
+        "年中开花结果期": {"lower": 25, "upper": 60, "label": "开花结果期"},
+        "开花结果期": {"lower": 25, "upper": 60, "label": "开花结果期"},
+        "成熟采收期": {"lower": 15, "upper": 40, "label": "成熟采收期"},
+    },
+    "可可": {"年中结果期": {"lower": 30, "upper": 70, "label": "结果期"}},
+    "高粱": {
+        "播种出苗期": {"lower": 15, "upper": 25, "label": "播种出苗期"},
+        "抽穗开花期": {"lower": 15, "upper": 35, "label": "抽穗开花期"},
+        "灌浆成熟期": {"lower": 10, "upper": 25, "label": "灌浆成熟期"},
+    },
+    "大麦": {
+        "播种出苗期": {"lower": 15, "upper": 25, "label": "播种出苗期"},
+        "返青拔节期": {"lower": 15, "upper": 30, "label": "返青拔节期"},
+        "拔节抽穗期": {"lower": 15, "upper": 30, "label": "拔节抽穗期"},
+        "抽穗开花期": {"lower": 15, "upper": 30, "label": "抽穗开花期"},
+        "灌浆成熟期": {"lower": 10, "upper": 20, "label": "灌浆成熟期"},
+    },
+    "花生": {
+        "播种出苗期": {"lower": 15, "upper": 25, "label": "播种出苗期"},
+        "开花下针期": {"lower": 20, "upper": 40, "label": "开花下针期"},
+        "粒塞成熟期": {"lower": 15, "upper": 30, "label": "粒塞成熟期"},
+    },
+    "棕榈油": {"年中结果期": {"lower": 30, "upper": 60, "label": "结果期"}},
+}
+
+
+COUNTRY_STAGE_RAIN_THRESHOLDS = {
+}
+
+
+# Country-specific stage rainfall thresholds (from document)
+COUNTRY_STAGE_RAIN_THRESHOLDS = {
+    "可可": {
+        "科特迪瓦": {
+            "花期与坐果": {"lower": 15, "upper": 100},
+            "果实发育期": {"lower": 15, "upper": 120},
+            "主季收获": {"lower": 5, "upper": 80},
+            "次季收获": {"lower": 5, "upper": 80},
+        },
+        "厄瓜多尔": {
+            "花期与坐果": {"lower": 15, "upper": 100},
+            "果实发育期": {"lower": 15, "upper": 120},
+            "收获期": {"lower": 5, "upper": 80},
+        },
+        "加纳": {
+            "花期与坐果": {"lower": 15, "upper": 100},
+            "果实发育期": {"lower": 15, "upper": 120},
+            "主季收获": {"lower": 5, "upper": 80},
+            "次季收获": {"lower": 5, "upper": 80},
+        },
+    },
+    "咖啡": {
+        "巴西": {
+            "开花期": {"lower": 10, "upper": 80},
+            "果实发育期": {"lower": 15, "upper": 120},
+            "成熟收获期": {"lower": 5, "upper": 80},
+        },
+        "哥伦比亚": {
+            "开花期": {"lower": 10, "upper": 80},
+            "果实发育期": {"lower": 15, "upper": 120},
+            "成熟收获期": {"lower": 5, "upper": 60},
+        },
+        "越南": {
+            "开花期": {"lower": 10, "upper": 100},
+            "果实发育期": {"lower": 15, "upper": 150},
+            "成熟收获期": {"lower": 5, "upper": 60},
+        },
+    },
+    "大豆": {
+        "阿根廷": {
+            "播种-出苗": {"lower": 10, "upper": 100},
+            "开花结荚": {"lower": 15, "upper": 80},
+            "灌浆鼓粒": {"lower": 15, "upper": 70},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+        "巴西": {
+            "播种-出苗": {"lower": 10, "upper": 120},
+            "开花结荚": {"lower": 15, "upper": 100},
+            "灌浆鼓粒": {"lower": 15, "upper": 80},
+            "成熟收获": {"lower": 5, "upper": 60},
+        },
+        "中国": {
+            "播种-出苗": {"lower": 10, "upper": 80},
+            "开花结荚": {"lower": 15, "upper": 80},
+            "灌浆鼓粒": {"lower": 15, "upper": 70},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+        "美国": {
+            "播种-出苗": {"lower": 10, "upper": 100},
+            "开花结荚": {"lower": 15, "upper": 80},
+            "灌浆鼓粒": {"lower": 15, "upper": 70},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+    },
+    "棉花": {
+        "澳洲": {
+            "播种出苗": {"lower": 10, "upper": 80},
+            "现蕾开花-结铃": {"lower": 15, "upper": 80},
+            "吐絮": {"lower": 5, "upper": 50},
+        },
+        "巴西": {
+            "播种出苗": {"lower": 10, "upper": 120},
+            "现蕾开花-结铃": {"lower": 15, "upper": 100},
+            "吐絮": {"lower": 5, "upper": 50},
+        },
+        "中国": {
+            "播种出苗": {"lower": 5, "upper": 40},
+            "现蕾开花-结铃": {"lower": 10, "upper": 80},
+            "吐絮": {"lower": 5, "upper": 40},
+        },
+        "印度": {
+            "播种出苗": {"lower": 10, "upper": 120},
+            "现蕾开花-结铃": {"lower": 15, "upper": 100},
+            "吐絮": {"lower": 5, "upper": 50},
+        },
+        "美国": {
+            "播种出苗": {"lower": 5, "upper": 50},
+            "现蕾开花-结铃": {"lower": 10, "upper": 80},
+            "吐絮": {"lower": 5, "upper": 50},
+        },
+    },
+    "玉米": {
+        "阿根廷": {
+            "播种出苗": {"lower": 10, "upper": 100},
+            "拔节抽雄": {"lower": 15, "upper": 120},
+            "吐丝授粉": {"lower": 10, "upper": 80},
+            "成熟收获": {"lower": 10, "upper": 50},
+        },
+        "巴西": {
+            "播种出苗": {"lower": 10, "upper": 120},
+            "拔节抽雄": {"lower": 15, "upper": 100},
+            "吐丝授粉": {"lower": 10, "upper": 80},
+            "成熟收获": {"lower": 5, "upper": 60},
+        },
+        "中国": {
+            "播种出苗": {"lower": 10, "upper": 100},
+            "拔节抽雄": {"lower": 15, "upper": 120},
+            "吐丝授粉": {"lower": 10, "upper": 80},
+            "成熟收获": {"lower": 5, "upper": 60},
+        },
+        "欧盟": {
+            "播种出苗": {"lower": 15, "upper": 100},
+            "拔节抽雄": {"lower": 15, "upper": 120},
+            "吐丝授粉": {"lower": 10, "upper": 80},
+            "成熟收获": {"lower": 10, "upper": 60},
+        },
+        "美国": {
+            "播种出苗": {"lower": 10, "upper": 100},
+            "拔节抽雄": {"lower": 15, "upper": 120},
+            "吐丝授粉": {"lower": 10, "upper": 80},
+            "成熟收获": {"lower": 5, "upper": 60},
+        },
+    },
+    "甜菜": {
+        "欧盟": {
+            "播种出苗": {"lower": 10, "upper": 80},
+            "苗期-莲座期": {"lower": 15, "upper": 100},
+            "块根膨大期": {"lower": 20, "upper": 120},
+            "糖分积累期": {"lower": 10, "upper": 60},
+            "收获期": {"lower": 5, "upper": 50},
+        },
+    },
+    "菜籽": {
+        "澳洲": {
+            "播种出苗": {"lower": 10, "upper": 60},
+            "开花结荚": {"lower": 15, "upper": 50},
+            "关键鼓粒": {"lower": 15, "upper": 60},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+        "印度": {
+            "播种出苗": {"lower": 10, "upper": 60},
+            "开花结荚": {"lower": 15, "upper": 50},
+            "关键鼓粒": {"lower": 15, "upper": 60},
+            "成熟收获": {"lower": 5, "upper": 40},
+        },
+    },
+    "葵籽": {
+        "阿根廷": {
+            "播种出苗": {"lower": 10, "upper": 80},
+            "现蕾开花": {"lower": 10, "upper": 70},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+        "欧盟": {
+            "播种出苗": {"lower": 10, "upper": 60},
+            "现蕾开花": {"lower": 10, "upper": 60},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+        "俄罗斯": {
+            "播种出苗": {"lower": 10, "upper": 60},
+            "现蕾开花": {"lower": 10, "upper": 60},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+        "乌克兰": {
+            "播种出苗": {"lower": 10, "upper": 60},
+            "现蕾开花": {"lower": 10, "upper": 60},
+            "成熟收获": {"lower": 5, "upper": 50},
+        },
+    },
+}
+
+
+def get_current_stage(crop, country):
+    month = datetime.now().month
+    pheno = CROP_PHENOLOGY.get(crop, {})
+    stages = pheno.get(country, [])
+    for start, end, stage in stages:
+        if start <= end:
+            if start <= month <= end:
+                return stage
+        else:
+            if month >= start or month <= end:
+                return stage
+    return None
+
+
+def get_stage_thresholds(crop, country):
+    stage = get_current_stage(crop, country)
+    if stage and crop in STAGE_RAIN_THRESHOLDS:
+        th = STAGE_RAIN_THRESHOLDS[crop].get(stage)
+        if th:
+            return th, stage
+    gen = CROP_RAIN_THRESHOLDS.get(crop)
+    if gen:
+        return gen, "常规期"
+    return {"lower": 0, "upper": 999}, "-"
+
+
+# ============ 新增：数据文件路径 ============
+import os
+
+PRECIP_FILE = os.path.join(os.path.dirname(__file__), "全球农产品降水数据_最新.xlsx")
+VHI_FILE = os.path.join(os.path.dirname(__file__), "VHI_Data", "VHI_最近6周汇总.xlsx")
+
+
+def load_precip_data():
+    data = {}
+    try:
+        wb = openpyxl.load_workbook(PRECIP_FILE, data_only=True)
+        crops = [s for s in wb.sheetnames if "温度" not in s]
+        for crop in crops:
+            ws = wb[crop]
+            rows = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                r = list(row)
+                rows.append({
+                    "country": r[0],
+                    "province": r[1],
+                    "past14": round(r[-3], 1) if r[-3] is not None else 0,
+                    "future1_7": round(r[-2], 1) if r[-2] is not None else 0,
+                    "future8_14": round(r[-1], 1) if r[-1] is not None else 0,
+                })
+            data[crop] = rows
+    except Exception as e:
+        print(f"[WARN] 加载降水数据失败: {e}")
+    return data
+
+
+def load_vhi_data():
+    data = []
+    try:
+        wb = openpyxl.load_workbook(VHI_FILE, data_only=True)
+        ws = wb[wb.sheetnames[0]]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            r = list(row)
+            vals = [round(v, 1) if v is not None else 0 for v in r[4:10]]
+            data.append({
+                "country": r[0],
+                "province": r[2],
+                "crop": r[3],
+                "w17": vals[0], "w18": vals[1], "w19": vals[2],
+                "w20": vals[3], "w21": vals[4], "w22": vals[5],
+                "latest": vals[5],
+                "trend_6w": vals,
+                "update_date": str(r[10]) if r[10] else "",
+            })
+    except Exception as e:
+        print(f"[WARN] 加载VHI数据失败: {e}")
+    return data
+
+
+def judge_growth(vhi):
+    if vhi is None or vhi == 0:
+        return ("-", "")
+    if vhi >= 60:
+        return ("★ 生长良好", "growth-good")
+    elif vhi >= 40:
+        return ("● 生长正常", "growth-normal")
+    elif vhi >= 20:
+        return ("△ 轻度胁迫", "growth-stress")
+    else:
+        return ("✖ 严重胁迫", "growth-severe")
+
+
+def judge_rainfall(amount_mm, crop, country=None):
+    if country:
+        stage = get_current_stage(crop, country)
+        # Try country-specific thresholds first
+        if stage and crop in COUNTRY_STAGE_RAIN_THRESHOLDS:
+            country_data = COUNTRY_STAGE_RAIN_THRESHOLDS[crop].get(country, {})
+            if country_data:
+                th = country_data.get(stage)
+                if not th:
+                    for sname, st in country_data.items():
+                        if stage.startswith(sname) or sname.startswith(stage):
+                            th = st
+                            break
+                if th:
+                    if amount_mm < th["lower"]:
+                        pct = (th["lower"] - amount_mm) / th["lower"] * 100
+                        return (f"↓ 偏少 {pct:.0f}%", "rain-low")
+                    elif amount_mm > th["upper"]:
+                        pct = (amount_mm - th["upper"]) / th["upper"] * 100
+                        return (f"↑ 偏多 {pct:.0f}%", "rain-high")
+                    else:
+                        return ("✔ 正常", "rain-normal")
+        if stage and crop in STAGE_RAIN_THRESHOLDS:
+            th = STAGE_RAIN_THRESHOLDS[crop].get(stage)
+            if th:
+                if amount_mm < th["lower"]:
+                    pct = (th["lower"] - amount_mm) / th["lower"] * 100
+                    return (f"↓ 偏少 {pct:.0f}%", "rain-low")
+                elif amount_mm > th["upper"]:
+                    pct = (amount_mm - th["upper"]) / th["upper"] * 100
+                    return (f"↑ 偏多 {pct:.0f}%", "rain-high")
+                else:
+                    return ("✔ 正常", "rain-normal")
+    if crop not in CROP_RAIN_THRESHOLDS:
+        return ("-", "")
+    th = CROP_RAIN_THRESHOLDS[crop]
+    if amount_mm < th["lower"]:
+        pct = (th["lower"] - amount_mm) / th["lower"] * 100
+        return (f"↓ 偏少 {pct:.0f}%", "rain-low")
+    elif amount_mm > th["upper"]:
+        pct = (amount_mm - th["upper"]) / th["upper"] * 100
+        return (f"↑ 偏多 {pct:.0f}%", "rain-high")
+    else:
+        return ("✔ 正常", "rain-normal")
+
+
+
+def build_dashboard_data():
+    precip = load_precip_data()
+    vhi = load_vhi_data()
+
+    vhi_lookup = {}
+    for rec in vhi:
+        key = (rec["country"], rec["province"], rec["crop"])
+        vhi_lookup[key] = rec
+
+    province_en_to_cn = {
+        "Alberta": "艾伯塔", "Manitoba": "马尼托巴",
+        "Ontario": "安大略", "Saskatchewan": "萨斯喀彻温",
+        "New South Wales": "新南威尔斯", "Queensland": "昆士兰",
+        "South Australia": "南澳大利亚", "Victoria": "维多利亚",
+        "Western Australia": "西澳大利亚",
+        "Buenos Aires": "布宜诺斯艾利斯",
+        "Cordoba": "科多瓦", "Santa Fe": "圣菲",
+        "Santiago del Estero": "圣地亚哥-德尔-埃斯特罗",
+        "La Pampa": "???",
+        # EU country name EN->CN
+        "France": "\xe6\xb3\x95\xe5\x9b\xbd", "Germany": "\xe5\xbe\xb7\xe5\x9b\xbd", "Poland": "\xe6\xb3\xa2\xe5\x85\xb0",
+        "Spain": "\xe8\xa5\xbf\xe7\x8f\xad\xe7\x89\x99", "Bulgaria": "\xe4\xbf\x9d\xe5\x8a\xa0\xe5\x88\xa9\xe4\xba\x9a", "United Kingdom": "\xe8\x8b\xb1\xe5\x9b\xbd",
+        "Italy": "\xe6\x84\x8f\xe5\xa4\xa7\xe5\x88\xa9", "Czech Republic": "\xe6\x8d\xb7\xe5\x85\x8b", "Hungary": "\xe5\x8c\x88\xe7\x89\x99\xe5\x88\xa9",
+        "Romania": "\xe7\xbd\x97\xe9\xa9\xac\xe5\xb0\xbc\xe4\xba\x9a", "Denmark": "\xe4\xb8\xb9\xe9\xba\xa6",
+    }
+    dashboard = {}
+    for crop, regions in precip.items():
+        dashboard[crop] = []
+        for reg in regions:
+            country = reg["country"]
+            province = reg["province"]
+
+            vhi_rec = None
+            key = (country, province, crop)
+            if key in vhi_lookup:
+                vhi_rec = vhi_lookup[key]
+            else:
+                cn_prov = province_en_to_cn.get(province, province)
+                key2 = (country, cn_prov, crop)
+                if key2 in vhi_lookup:
+                    vhi_rec = vhi_lookup[key2]
+                elif country == "欧盟":
+                    for vk, vv in vhi_lookup.items():
+                        if vk[2] == crop and vk[1] == province:
+                            vhi_rec = vv
+                            break
+            stage_name = get_current_stage(crop, country) or chr(38750) + chr(20027) + chr(29983) + chr(32946) + chr(26399)
+            row = {
+                "crop": crop, "country": "澳洲" if country in ["澳洲", "澳大利亚"] else country, "province": province, "stage": stage_name,
+                "past14": reg["past14"], "future1_7": reg["future1_7"], "future8_14": reg["future8_14"],
+            }
+            if crop == "咖啡":
+                t_key = (country, province)
+                if t_key in COFFEE_TEMP_DATA:
+                    t = COFFEE_TEMP_DATA[t_key]
+                    row["past_temp"] = t["past"]
+                    row["f1_7_temp"] = t["f1_7"]
+                    row["f8_14_temp"] = t["f8_14"]
+            j1, j1c = judge_rainfall(reg["future1_7"], crop, country)
+            j2, j2c = judge_rainfall(reg["future8_14"], crop, country)
+            row["judge1_text"] = j1
+            row["judge1_class"] = j1c
+            row["judge2_text"] = j2
+            row["judge2_class"] = j2c
+
+            if vhi_rec:
+                row["latest_vhi"] = vhi_rec["latest"]
+                row["vhi_trend"] = vhi_rec["trend_6w"]
+                row["vhi_update"] = vhi_rec["update_date"]
+                gt, gc = judge_growth(vhi_rec["latest"])
+                row["growth_text"] = gt
+                row["growth_class"] = gc
+                row["has_vhi"] = True
+            else:
+                row["latest_vhi"] = None
+                row["vhi_trend"] = []
+                row["vhi_update"] = ""
+                row["growth_text"] = "-"
+                row["growth_class"] = ""
+                row["has_vhi"] = False
+
+            dashboard[crop].append(row)
+
+    print(f"[INFO] 看板数据构建完成: {sum(len(v) for v in dashboard.values())} 条记录")
+    return dashboard
+
+
+
+
+# Coffee temperature data (built at load time)
+COFFEE_TEMP_DATA = {
+    ("哥伦比亚", "内尔哈"): {"past": 23.7, "f1_7": 23.9, "f8_14": 23.6},
+    ("越南", "多乐省(罗布斯塔)"): {"past": 25.8, "f1_7": 25.5, "f8_14": 25},
+    ("哥伦比亚", "卡尔达斯"): {"past": 15.2, "f1_7": 14.1, "f8_14": 13.9},
+    ("巴西", "圣保罗州(阿拉比卡)"): {"past": 17.9, "f1_7": 18, "f8_14": 17.6},
+    ("哥伦比亚", "安蒂奥基亚"): {"past": 15.4, "f1_7": 14.8, "f8_14": 14.8},
+    ("巴西", "米纳斯吉拉斯州(阿拉比卡)"): {"past": 21.1, "f1_7": 19.7, "f8_14": 19.8},
+    ("巴西", "巴伊亚州(罗布斯塔)"): {"past": 23.3, "f1_7": 25.7, "f8_14": 27},
+    ("哥伦比亚", "考卡"): {"past": 17.4, "f1_7": 16.7, "f8_14": 16.1},
+    ("哥伦比亚", "托利马"): {"past": 28, "f1_7": 26.3, "f8_14": 26.2},
+    ("哥伦比亚", "拉希拉"): {"past": 25.4, "f1_7": 24.8, "f8_14": 24.7},
+}
+
+DASHBOARD_DATA = build_dashboard_data()
 
 HTML_TPL = '''
 <!DOCTYPE html>
@@ -193,7 +790,8 @@ HTML_TPL = '''
 <body>
 <div class="container">
     <div class="title">全球农产品主产区动态物候</div>
-    <div class="select-box">
+    <div style="text-align:center;margin-bottom:10px;"><a href="/dashboard" style="display:inline-block;padding:8px 24px;background:#1a1a2e;color:#fff;text-decoration:none;border-radius:6px;font-size:15px;">📊 物候监测看板</a></div>
+        <div class="select-box">
         <select id="cropSelect" onchange="switchCrop()">
             <option value="soybean">大豆</option>
             <option value="corn">玉米</option>
@@ -218,7 +816,7 @@ HTML_TPL = '''
     <div class="map-box">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 17.68 964 924.64" id="worldMap">
 
-    
+
     <path d="M957.93,483.21L957.87,482.97L957.95,483.08Z" fill="#dadada" stroke="#fff" stroke-width="0.5" id="TV" data-name="Tuvalu"/>
     <path d="M489.23,634.12L488.92,634.14L488.98,633.9L489.28,633.9Z" fill="#dadada" stroke="#fff" stroke-width="0.5" id="BV" data-name="Bouvet Island"/>
     <path d="M465.77,356.76L465.76,356.93L465.72,356.88L465.72,356.82Z" fill="#dadada" stroke="#fff" stroke-width="0.5" id="GI" data-name="Gibraltar"/>
@@ -475,6 +1073,7 @@ HTML_TPL = '''
     <path d="M293.6,426.85L293.49,426.89L293.16,426.59L293.41,426.53Z" fill="#dadada" stroke="#fff" stroke-width="0.5" id="AW" data-name="Aruba"/>
 
 
+
         </svg>
     </div>
     <div id="tooltip"></div>
@@ -496,8 +1095,8 @@ const cropPhenology = {
         name: "大豆",
         countries: {
             US: [
-                { months:[4,5,6], stage:"播种-出苗", suitable:"地温≥10℃，土壤湿度60%~70%", risk:"连续两周＜10℃：烂种，出苗延迟；＞32℃：无明显威胁；降水＜10mm：芽干，出苗困难；降水＞100mm：土壤过湿，烂种缺苗" },
-                { months:[7], stage:"开花结荚", suitable:"日均温22~28℃，水分需求旺", risk:"连续两周＜18℃：开花减少，结荚率低；＞35℃且周降水＜15mm：大量落花落荚；降水＜15mm：花荚脱落；降水＞80mm：持续阴雨，授粉不良" },
+                { months:[4,5], stage:"播种-出苗", suitable:"地温≥10℃，土壤湿度60%~70%", risk:"连续两周＜10℃：烂种，出苗延迟；＞32℃：无明显威胁；降水＜10mm：芽干，出苗困难；降水＞100mm：土壤过湿，烂种缺苗" },
+                { months:[6,7], stage:"开花结荚", suitable:"日均温22~28℃，水分需求旺", risk:"连续两周＜18℃：开花减少，结荚率低；＞35℃且周降水＜15mm：大量落花落荚；降水＜15mm：花荚脱落；降水＞80mm：持续阴雨，授粉不良" },
                 { months:[8], stage:"灌浆鼓粒", suitable:"日均温21~24℃，光照足", risk:"连续两周＜15℃：灌浆缓慢，粒重不足；＞32℃且降水＜15mm：逼熟，瘪粒；降水＜15mm：粒重显著降低；降水＞70mm：渍涝，根系早衰" },
                 { months:[9,10,11], stage:"成熟收获", suitable:"晴朗干燥，温差大", risk:"连续两周＜10℃：成熟延迟，含水量高；＞35℃：对成熟影响小；降水＜5mm：利于收获；降水＞50mm：籽粒霉烂，田间发芽" }
             ],
@@ -514,8 +1113,8 @@ const cropPhenology = {
                 { months:[4,5], stage:"成熟收获", suitable:"干燥晴朗", risk:"连续两周＜10℃：成熟期延迟；＞32℃：影响小；降水＜5mm：有利作业；降水＞50mm：霉变，品质降" }
             ],
             CN: [
-                { months:[4,5,6], stage:"播种-出苗", suitable:"地温≥10℃，墒情好", risk:"连续两周＜10℃：烂种，出苗极慢；＞30℃：无明显威胁；降水＜10mm：芽干，缺苗断垄；降水＞80mm：土壤过湿，粉种" },
-                { months:[7], stage:"开花结荚", suitable:"日均温22~28℃", risk:"连续两周＜18℃：开花数减少；＞35℃且周降水＜15mm：落花落荚；降水＜15mm：干旱，花荚脱落；降水＞80mm：授粉不良" },
+                { months:[4,5], stage:"播种-出苗", suitable:"地温≥10℃，墒情好", risk:"连续两周＜10℃：烂种，出苗极慢；＞30℃：无明显威胁；降水＜10mm：芽干，缺苗断垄；降水＞80mm：土壤过湿，粉种" },
+                { months:[6,7], stage:"开花结荚", suitable:"日均温22~28℃", risk:"连续两周＜18℃：开花数减少；＞35℃且周降水＜15mm：落花落荚；降水＜15mm：干旱，花荚脱落；降水＞80mm：授粉不良" },
                 { months:[8], stage:"灌浆鼓粒", suitable:"21~24℃，光照足", risk:"连续两周＜15℃：灌浆减慢；＞32℃且降水＜15mm：逼熟，百粒重低；降水＜15mm：籽粒干瘪；降水＞70mm：湿害" },
                 { months:[9,10], stage:"成熟收获", suitable:"晴朗干燥", risk:"连续两周＜10℃：成熟延迟，遇霜冻风险；＞30℃：无碍；降水＜5mm：极利收获；降水＞50mm：霉变，影响品质" }
             ]
@@ -651,9 +1250,9 @@ const cropPhenology = {
             ]
         }
     },
-    sugarcane: {
-        name: "甘蔗",
-        countries: {
+        sugarcane: {
+            name: "甘蔗",
+            countries: {
             "BR": [
                 {"months": [9,10,11,12,1,2,3,4], "stage":"关键生长期", "suitable":"25~32℃，需水极大", "risk":"<20℃：伸长停滞，节间短；>38℃且降水<20mm：生长受严重抑制，茎细低产；降水<20mm：产量大减；降水>200mm：长期积水，根系缺氧，倒伏"},
                 {"months": [4,5,6,7,8,9,10,11], "stage":"榨季", "suitable":"凉爽干燥，温差>10℃", "risk":"<10℃：蔗糖分转化受阻；>32℃且降水<10mm：呼吸消耗大，糖分积累不佳；降水<5mm：有利糖分积累；降水>80mm：蔗糖分下降，倒伏增加"}
@@ -731,10 +1330,10 @@ const cropPhenology = {
             CN: [
                 {months:[10], stage:"播种出苗", suitable:"气温15~18℃，土壤湿度65%~75%", risk:"<8℃出苗迟缓分蘖不足；>25℃少雨旺长抗寒下降；少雨出苗困难；多雨烂种播期推迟"},
                 {months:[11,12,1,2], stage:"分蘖越冬", suitable:"日均温0~5℃，积雪保温土壤封冻", risk:"<-8℃无积雪死苗暴增；>8℃多雨冻融根拔死苗；少雨无灌溉干旱死苗；多雨田间积水渍害"},
-                {months:[3,4], stage:"返青拔节", suitable:"日均温12~18℃，光照足水分适中", risk:"<5℃返青延迟穗分化受阻；>28℃少雨徒长易倒伏；少雨有效穗数不足；多雨渍害纹枯病重"},
-                {months:[5], stage:"抽穗扬花", suitable:"日均温16~22℃，晴朗微风湿度60%~70%", risk:"<10℃花粉不育结实率大降；>30℃少雨高温逼熟小花败育；少雨结实率低；多雨赤霉病暴发"},
-                {months:[6], stage:"灌浆成熟", suitable:"日均温20~24℃，光照足水分适中", risk:"<15℃灌浆慢千粒重低；>30℃少雨干热风逼熟粒重骤降；少雨干旱逼熟；多雨穗发芽赤霉病"},
-                {months:[7], stage:"收获期", suitable:"晴朗干燥22~28℃", risk:"<15℃多雨成熟延迟霉变；>35℃落粒损失；少雨极利收获；多雨穗发芽霉变严重"}
+                {months:[2,3,4], stage:"返青拔节", suitable:"日均温12~18℃，光照足水分适中", risk:"<5℃返青延迟穗分化受阻；>28℃少雨徒长易倒伏；少雨有效穗数不足；多雨渍害纹枯病重"},
+                {months:[4,5], stage:"抽穗扬花", suitable:"日均温16~22℃，晴朗微风湿度60%~70%", risk:"<10℃花粉不育结实率大降；>30℃少雨高温逼熟小花败育；少雨结实率低；多雨赤霉病暴发"},
+                {months:[5,6], stage:"灌浆成熟", suitable:"日均温20~24℃，光照足水分适中", risk:"<15℃灌浆慢千粒重低；>30℃少雨干热风逼熟粒重骤降；少雨干旱逼熟；多雨穗发芽赤霉病"},
+                {months:[6], stage:"收获期", suitable:"晴朗干燥22~28℃", risk:"<15℃多雨成熟延迟霉变；>35℃落粒损失；少雨极利收获；多雨穗发芽霉变严重"}
             ],
             EU: [
                 {months:[9,10], stage:"播种出苗", suitable:"气温14~18℃，土壤湿润", risk:"<6℃出苗慢冬前弱苗；少雨出苗不齐；多雨渍涝推迟播种"},
@@ -748,24 +1347,24 @@ const cropPhenology = {
                 {months:[9,10], stage:"播种出苗", suitable:"气温15~20℃，土壤湿度良好", risk:"<8℃苗弱分蘖少；>30℃土壤失墒；少雨出苗差；多雨烂种"},
                 {months:[11,12,1,2], stage:"分蘖越冬", suitable:"日均温0~8℃，积雪保护", risk:"<-12℃无积雪严重冻害；>10℃多雨徒长耗养分；少雨冬旱死苗；多雨渍涝"},
                 {months:[3,4], stage:"返青拔节", suitable:"日均温12~18℃，降水适中", risk:"<5℃返青延迟；>28℃少雨穗分化不良；少雨穗数奠基不足；多雨渍害"},
-                {months:[5], stage:"抽穗扬花", suitable:"日均温16~22℃，干燥少雨", risk:"<10℃不育率上升；>30℃少雨小花败育；少雨结实下降；多雨病害高发"},
-                {months:[6], stage:"灌浆成熟", suitable:"日均温20~26℃，光照充足", risk:"<15℃灌浆变慢；>32℃少雨干热风逼熟；少雨粒重减少；多雨穗发芽"},
-                {months:[7], stage:"收获期", suitable:"干燥晴朗24~30℃", risk:"<15℃多雨收获延迟霉变；>38℃落粒；少雨收获极佳；多雨穗发芽"}
+                {months:[4,5], stage:"抽穗扬花", suitable:"日均温16~22℃，干燥少雨", risk:"<10℃不育率上升；>30℃少雨小花败育；少雨结实下降；多雨病害高发"},
+                {months:[5,6], stage:"灌浆成熟", suitable:"日均温20~26℃，光照充足", risk:"<15℃灌浆变慢；>32℃少雨干热风逼熟；少雨粒重减少；多雨穗发芽"},
+                {months:[6,7], stage:"收获期", suitable:"干燥晴朗24~30℃", risk:"<15℃多雨收获延迟霉变；>38℃落粒；少雨收获极佳；多雨穗发芽"}
             ],
             IN: [
                 {months:[10,11], stage:"播种出苗", suitable:"气温18~24℃，土壤水分适中", risk:"<10℃出苗缓慢；>32℃土壤干旱；少雨缺苗需灌溉；多雨渍涝"},
                 {months:[12,1], stage:"分蘖营养生长", suitable:"日均温12~20℃，光照足灌溉充足", risk:"<5℃分蘖停止；>28℃旺长耗水；少雨依赖灌溉；多雨湿害"},
                 {months:[2,3], stage:"抽穗扬花", suitable:"日均温15~22℃，天气晴朗", risk:"<8℃结实率下降；>30℃少雨花粉活力降低；少雨需灌溉；多雨病害多发"},
-                {months:[4], stage:"灌浆成熟", suitable:"日均温20~28℃，气候干燥", risk:"<15℃灌浆缓慢；>35℃少雨干热风逼熟粒重骤降；少雨利于灌浆；多雨穗发芽"},
-                {months:[5], stage:"收获期", suitable:"晴朗干燥25~32℃", risk:"<15℃影响极小；>38℃落粒；少雨收获极佳；多雨霉变穗发芽"}
+                {months:[3,4], stage:"灌浆成熟", suitable:"日均温20~28℃，气候干燥", risk:"<15℃灌浆缓慢；>35℃少雨干热风逼熟粒重骤降；少雨利于灌浆；多雨穗发芽"},
+                {months:[4], stage:"收获期", suitable:"晴朗干燥25~32℃", risk:"<15℃影响极小；>38℃落粒；少雨收获极佳；多雨霉变穗发芽"}
             ],
             RU: [
                 {months:[8,9], stage:"播种出苗", suitable:"气温14~18℃，土壤底墒充足", risk:"<6℃出苗极慢分蘖不足；>28℃少雨干旱出苗不齐；少雨出苗困难基本苗不足；多雨渍涝烂种推迟播期"},
                 {months:[10,11,12,1,2,3], stage:"分蘖越冬", suitable:"日均温-3~-8℃稳定封冻，积雪≥15cm", risk:"<-15℃无积雪分蘖节冻死死苗过半；>5℃多雨冻融根拔死苗；少雨无积雪根系干枯；多雨低温积水结冰窒息死苗"},
                 {months:[4,5], stage:"返青拔节", suitable:"日均温10~15℃，融雪后水分充足", risk:"<3℃返青严重延迟穗数不足；>25℃少雨春旱分蘖退化；少雨穗分化受阻；多雨渍害根系缺氧"},
-                {months:[6], stage:"抽穗扬花", suitable:"日均温16~22℃，晴朗微风水分适中", risk:"<10℃花粉败育结实大降；>30℃少雨高温干旱小花不育；少雨结实率降低；多雨阴雨赤霉病风险"},
-                {months:[7], stage:"灌浆成熟", suitable:"日均温20~26℃，光照足水分适中", risk:"<15℃灌浆慢千粒重低；>32℃少雨干热风逼熟粒重骤降；少雨干旱减产降质；多雨穗发芽赤霉病暴发"},
-                {months:[8], stage:"收获期", suitable:"晴朗干燥22~30℃", risk:"<12℃多雨收获延迟穗上霉变；>35℃落粒损失；少雨极利收获；多雨穗发芽品质下降"}
+                {months:[5,6], stage:"抽穗扬花", suitable:"日均温16~22℃，晴朗微风水分适中", risk:"<10℃花粉败育结实大降；>30℃少雨高温干旱小花不育；少雨结实率降低；多雨阴雨赤霉病风险"},
+                {months:[6,7], stage:"灌浆成熟", suitable:"日均温20~26℃，光照足水分适中", risk:"<15℃灌浆慢千粒重低；>32℃少雨干热风逼熟粒重骤降；少雨干旱减产降质；多雨穗发芽赤霉病暴发"},
+                {months:[7,8], stage:"收获期", suitable:"晴朗干燥22~30℃", risk:"<12℃多雨收获延迟穗上霉变；>35℃落粒损失；少雨极利收获；多雨穗发芽品质下降"}
             ]
         }
     },
@@ -774,24 +1373,17 @@ const cropPhenology = {
         countries: {
             US: [
                 {months:[5,6], stage:"播种出苗", suitable:"地温≥16℃，土壤湿度适中", risk:"<12℃出苗慢烂种；>38℃土壤蒸发快出苗不齐；少雨出苗困难；多雨土壤板结烂种"},
-                {months:[7], stage:"拔节孕穗", suitable:"日均温25~30℃，需水量增加", risk:"<18℃生育迟缓穗分化不良；>38℃少雨穗小粒少；少雨干旱胁迫；多雨严重渍涝"},
-                {months:[8], stage:"抽穗开花", suitable:"日均温25~32℃，晴朗微风", risk:"<16℃花粉活力下降；>38℃少雨花粉失活结实大降；少雨花而不实；多雨阴雨授粉不良"},
-                {months:[9], stage:"灌浆成熟", suitable:"日均温22~28℃，干燥少雨", risk:"<15℃灌浆变慢；>35℃少雨高温逼熟粒重偏轻；少雨利于灌浆；多雨穗部霉烂"},
-                {months:[10,11], stage:"收获期", suitable:"气候干燥15~28℃", risk:"<10℃成熟变慢；>35℃落粒；少雨收获极佳；多雨穗发芽霉变"}
+                {months:[6,7], stage:"拔节孕穗", suitable:"日均温25~30℃，需水量增加", risk:"<18℃生育迟缓穗分化不良；>38℃少雨穗小粒少；少雨干旱胁迫；多雨严重渍涝"},
+                {months:[7,8], stage:"抽穗开花", suitable:"日均温25~32℃，晴朗微风", risk:"<16℃花粉活力下降；>38℃少雨花粉失活结实大降；少雨花而不实；多雨阴雨授粉不良"},
+                {months:[8,9], stage:"灌浆成熟", suitable:"日均温22~28℃，干燥少雨", risk:"<15℃灌浆变慢；>35℃少雨高温逼熟粒重偏轻；少雨利于灌浆；多雨穗部霉烂"},
+                {months:[9,10,11], stage:"收获期", suitable:"气候干燥15~28℃", risk:"<10℃成熟变慢；>35℃落粒；少雨收获极佳；多雨穗发芽霉变"}
             ],
             NG: [
                 {months:[5,6], stage:"播种出苗", suitable:"雨季起始气温25~30℃", risk:"<18℃出苗差；>38℃土壤干旱；少雨出苗不齐；多雨雨水冲刷烂种"},
                 {months:[7], stage:"拔节孕穗", suitable:"日均温25~32℃，雨水充沛", risk:"<20℃生长发育缓慢；>38℃少雨穗发育受阻；少雨干旱胁迫；多雨严重渍涝"},
                 {months:[8,9], stage:"抽穗开花", suitable:"日均温24~30℃，天气偏干燥", risk:"<18℃花粉不育；>38℃少雨结实率下降；少雨干旱影响授粉；多雨阴雨授粉不良"},
-                {months:[10], stage:"灌浆成熟", suitable:"日均温22~28℃，雨量渐少", risk:"<15℃灌浆缓慢；>36℃少雨高温逼熟；少雨利于灌浆；多雨穗部霉烂"},
-                {months:[11,12], stage:"收获期", suitable:"进入旱季气候干燥", risk:"<12℃影响很小；>38℃品质下降；少雨收获极佳；多雨霉变"}
-            ],
-            BR: [
-                {months:[9,10,11], stage:"播种出苗", suitable:"地温≥16℃，雨季开始土壤水分充足", risk:"<12℃出苗极慢缺苗断垄；>38℃蒸发剧烈出苗不齐；降水<10mm出苗困难苗不足；降水>120mm渍涝烂种推迟播期"},
-                {months:[12], stage:"拔节孕穗", suitable:"日均温25~32℃，雨水充沛光照足", risk:"<18℃生育迟缓穗分化不良；>38℃少雨穗小粒少；降水<15mm干旱植株矮小；降水>120mm渍涝根系缺氧"},
-                {months:[1], stage:"抽穗开花", suitable:"日均温25~32℃，干燥少雨利授粉", risk:"<16℃花粉活力降结实率降低；>38℃少雨花粉失活大面积不实；降水<10mm花而不实；降水>80mm阴雨冲刷花粉授粉不良"},
-                {months:[2,3], stage:"灌浆成熟", suitable:"日均温22~28℃，雨量递减干燥利灌浆", risk:"<15℃灌浆慢千粒重低；>35℃少雨高温逼熟粒重减轻；降水<10mm利于灌浆；降水>60mm穗霉烂籽粒发芽"},
-                {months:[4,5], stage:"收获期", suitable:"旱季晴朗干燥15~28℃", risk:"<10℃成熟延迟籽粒含水量高；>35℃落粒损失增加；降水<5mm极利收获晾晒；降水>50mm穗发芽霉变机械难作业"}
+                {months:[9,10], stage:"灌浆成熟", suitable:"日均温22~28℃，雨量渐少", risk:"<15℃灌浆缓慢；>36℃少雨高温逼熟；少雨利于灌浆；多雨穗部霉烂"},
+                {months:[10,11,12], stage:"收获期", suitable:"进入旱季气候干燥", risk:"<12℃影响很小；>38℃品质下降；少雨收获极佳；多雨霉变"}
             ]
         }
     },
@@ -803,23 +1395,23 @@ const cropPhenology = {
                 {months:[11,12,1,2], stage:"分蘖越冬", suitable:"日均温0~5℃，积雪覆盖", risk:"<-8℃无积雪冻害死苗；>10℃阴雨消耗养分；少雨冬旱伤根；多雨渍涝根腐"},
                 {months:[3,4], stage:"返青拔节", suitable:"日均温10~15℃，水分均匀", risk:"<3℃返青延迟；>25℃少雨旺长倒伏；少雨穗数不足；多雨病害加重"},
                 {months:[5,6], stage:"抽穗扬花", suitable:"日均温15~20℃，晴朗少雨", risk:"<8℃不育率上升；>28℃少雨结实率下降；少雨干旱胁迫；多雨赤霉病风险"},
-                {months:[7], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足", risk:"<12℃灌浆缓慢；>30℃少雨高温逼熟粒重降低；少雨粒重不足；多雨穗发芽"},
-                {months:[8], stage:"收获期", suitable:"晴朗干燥20~28℃", risk:"<12℃多雨收获延迟霉变；>35℃落粒；少雨收获极佳；多雨穗发芽"}
+                {months:[6,7], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足", risk:"<12℃灌浆缓慢；>30℃少雨高温逼熟粒重降低；少雨粒重不足；多雨穗发芽"},
+                {months:[7,8], stage:"收获期", suitable:"晴朗干燥20~28℃", risk:"<12℃多雨收获延迟霉变；>35℃落粒；少雨收获极佳；多雨穗发芽"}
             ],
             RU: [
                 {months:[4,5], stage:"播种出苗", suitable:"地温5~8℃，土壤解冻湿润", risk:"<3℃烂种；>28℃土壤失墒快；少雨出苗差；多雨渍涝"},
-                {months:[6], stage:"分蘖拔节", suitable:"日均温12~20℃，水分充足", risk:"<8℃分蘖偏少；>30℃少雨穗分化受阻；少雨干旱；多雨湿害严重"},
-                {months:[7], stage:"抽穗扬花", suitable:"日均温16~22℃，天气晴朗", risk:"<10℃不育率升高；>30℃少雨结实率下降；少雨干旱；多雨病害多发"},
-                {months:[8], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足", risk:"<12℃灌浆缓慢；>32℃少雨高温逼熟；少雨粒重降低；多雨穗发芽"},
-                {months:[9,10], stage:"收获期", suitable:"气候干燥15~25℃", risk:"<8℃成熟延迟；>30℃落粒；少雨收获极佳；多雨霉变"}
+                {months:[5,6], stage:"分蘖拔节", suitable:"日均温12~20℃，水分充足", risk:"<8℃分蘖偏少；>30℃少雨穗分化受阻；少雨干旱；多雨湿害严重"},
+                {months:[6,7], stage:"抽穗扬花", suitable:"日均温16~22℃，天气晴朗", risk:"<10℃不育率升高；>30℃少雨结实率下降；少雨干旱；多雨病害多发"},
+                {months:[7,8], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足", risk:"<12℃灌浆缓慢；>32℃少雨高温逼熟；少雨粒重降低；多雨穗发芽"},
+                {months:[8,9], stage:"收获期", suitable:"气候干燥15~25℃", risk:"<8℃成熟延迟；>30℃落粒；少雨收获极佳；多雨霉变"}
             ],
-            AU: [
-                {months:[5,6], stage:"播种出苗", suitable:"气温12~18℃，秋雨来临土壤湿润", risk:"<5℃出苗极慢冬前苗弱；>28℃土壤失墒快出苗不齐；降水<10mm出苗困难缺苗严重；降水>70mm渍涝烂种推迟播期"},
-                {months:[7,8], stage:"分蘖营养生长", suitable:"日均温8~14℃，冬季温和降水均匀", risk:"<2℃严重冻伤叶片分蘖停滞；降水<10mm冬旱分蘖减少；降水>60mm湿害根系发育不良渍涝"},
-                {months:[9], stage:"拔节孕穗", suitable:"日均温12~18℃，水分需求增加", risk:"<6℃节间伸长受阻幼穗受抑；>28℃少雨穗分化不良；降水<15mm春旱有效穗减少；降水>70mm渍涝倒伏风险上升"},
-                {months:[10], stage:"抽穗扬花", suitable:"日均温14~20℃，晴朗少雨微风", risk:"<6℃花粉败育结实率骤降；>30℃少雨高温胁迫小花不育；降水<10mm干旱结实下降；降水>50mm阴雨授粉差赤霉病高发"},
-                {months:[11], stage:"灌浆成熟", suitable:"日均温18~24℃，光照充足天气干燥", risk:"<10℃灌浆缓慢千粒重不足；>32℃少雨干热风逼熟粒重骤降；降水<10mm利灌浆需防持续干旱；降水>50mm穗发芽霉变品质下降"},
-                {months:[12], stage:"收获期", suitable:"晴朗干燥20~30℃", risk:"<8℃成熟延迟收获推后；>35℃落粒损失增加；降水<5mm极利收获晾晒；降水>40mm穗发芽霉变机械无法下地"}
+            BR: [
+                {months:[5,6], stage:"播种出苗", suitable:"气温12~18℃，土壤水分适中", risk:"<5℃出苗极慢苗弱；>28℃蒸发快出苗不齐；少雨出苗困难；多雨渍涝烂种"},
+                {months:[6,7,8], stage:"分蘖营养生长", suitable:"日均温10~16℃，冬季温和降水均匀", risk:"<3℃霜冻分蘖停滞叶片受损；>25℃少雨旺长无效分蘖多；少雨干旱分蘖减少；多雨湿害根系差"},
+                {months:[8,9], stage:"拔节孕穗", suitable:"日均温14~20℃，需水量增加", risk:"<8℃节间伸长受阻穗发育差；>28℃少雨穗分化受抑穗粒不足；少雨干旱穗小粒少；多雨渍涝易倒伏"},
+                {months:[9,10], stage:"抽穗扬花", suitable:"日均温15~22℃，晴朗少雨", risk:"<8℃花粉不育结实大降；>30℃少雨高温胁迫小花败育；少雨干旱结实低；多雨阴雨授粉差赤霉病"},
+                {months:[10,11], stage:"灌浆成熟", suitable:"日均温18~24℃，光照足气候干燥", risk:"<12℃灌浆慢千粒重低；>32℃少雨高温逼熟粒重下降；少雨利于灌浆；多雨穗发芽霉变"},
+                {months:[11,12], stage:"收获期", suitable:"晴朗干燥20~28℃", risk:"<10℃成熟延迟；>35℃落粒；少雨收获极佳；多雨穗发芽霉变"}
             ]
         }
     },
@@ -829,24 +1421,24 @@ const cropPhenology = {
             CN: [
                 {months:[4,5], stage:"播种出苗", suitable:"地温≥15℃，土壤湿度60%~70%", risk:"<12℃烂种出苗极差；>35℃干旱出苗不齐；少雨出苗困难；多雨烂种"},
                 {months:[6,7], stage:"开花下针", suitable:"日均温23~28℃，水分适中", risk:"<18℃开花减少下针受阻；>35℃少雨花粉败育果针难入土；少雨干旱下针率低；多雨渍涝花腐病"},
-                {months:[8], stage:"荚果发育", suitable:"日均温25~30℃，水分需求最大", risk:"<20℃荚果发育停滞；>35℃少雨秕果率高；少雨干旱空壳多；多雨烂果黄曲霉风险"},
-                {months:[9], stage:"成熟收获", suitable:"干燥少雨20~28℃", risk:"<15℃成熟延迟；>35℃落果断针；少雨极利收获；多雨荚果霉烂田间发芽"}
+                {months:[7,8], stage:"荚果发育", suitable:"日均温25~30℃，水分需求最大", risk:"<20℃荚果发育停滞；>35℃少雨秕果率高；少雨干旱空壳多；多雨烂果黄曲霉风险"},
+                {months:[8,9], stage:"成熟收获", suitable:"干燥少雨20~28℃", risk:"<15℃成熟延迟；>35℃落果断针；少雨极利收获；多雨荚果霉烂田间发芽"}
             ],
             IN: [
                 {months:[6,7], stage:"播种出苗", suitable:"雨季起始气温25~32℃", risk:"<20℃出苗缓慢；>38℃干旱；少雨出苗不齐；多雨雨水冲刷烂种"},
                 {months:[8,9], stage:"开花下针", suitable:"日均温25~30℃，水分充足", risk:"<20℃开花受阻；>35℃少雨果针难下扎；少雨干旱；多雨渍涝花腐"},
-                {months:[10], stage:"荚果发育", suitable:"日均温24~30℃，土壤湿润", risk:"<20℃发育变慢；>35℃少雨秕果增多；少雨空壳率高；多雨烂果"},
-                {months:[11,12], stage:"成熟收获", suitable:"进入旱季气候干燥", risk:"<15℃收获延迟；>35℃品质下降；少雨收获极佳；多雨荚果霉烂"}
+                {months:[9,10], stage:"荚果发育", suitable:"日均温24~30℃，土壤湿润", risk:"<20℃发育变慢；>35℃少雨秕果增多；少雨空壳率高；多雨烂果"},
+                {months:[10,11,12], stage:"成熟收获", suitable:"进入旱季气候干燥", risk:"<15℃收获延迟；>35℃品质下降；少雨收获极佳；多雨荚果霉烂"}
             ],
             US: [
                 {months:[4,5], stage:"播种出苗", suitable:"地温≥18℃，土壤湿度良好", risk:"<15℃烂种；>38℃出苗差；少雨缺苗；多雨渍涝"},
                 {months:[6,7], stage:"开花下针", suitable:"日均温24~30℃，需水增加", risk:"<20℃开花减少；>35℃少雨下针受阻；少雨干旱；多雨花腐病"},
-                {months:[8], stage:"荚果发育", suitable:"日均温25~32℃，水分充足", risk:"<20℃发育停滞；>35℃少雨秕果增多；少雨空壳；多雨烂果"},
+                {months:[7,8], stage:"荚果发育", suitable:"日均温25~32℃，水分充足", risk:"<20℃发育停滞；>35℃少雨秕果增多；少雨空壳；多雨烂果"},
                 {months:[9,10], stage:"成熟收获", suitable:"干燥少雨", risk:"<15℃收获延迟；>35℃断针落果；少雨收获极佳；多雨霉烂"}
             ]
         }
     },
-    palm: {
+    palm_oil: {
         name: "棕榈油",
         countries: {
             ID: [
@@ -891,8 +1483,8 @@ const cropData = {
     },
     // 大麦：主产 EU,RU | 次产 AU,CA
     barley: { 
-        main: ["EU","RU"], 
-        sub: ["AU","CA"], 
+        main: ["RU","EU","AU","AR"], 
+        sub: ["CA"], 
         output:{EU:"5640万吨",RU:"1940万吨",AU:"1630万吨",CA:"970万吨"} 
     },
     // 花生：主产 CN | 次产 IN,NG,US
@@ -917,24 +1509,48 @@ function showDate() {
 
 function getCurrentPheno(countryData) {
     for (let phase of countryData) {
-        if (phase.months.includes(currentMonth)) return phase;
+        let months, stage, suitable, risk;
+        if (Array.isArray(phase)) {
+            let s = phase[0], e = phase[1];
+            months = [];
+            if (s <= e) { for (let m = s; m <= e; m++) months.push(m); }
+            else { for (let m = s; m <= 12; m++) months.push(m); for (let m = 1; m <= e; m++) months.push(m); }
+            stage = phase[2];
+            suitable = "";
+            risk = "";
+        } else {
+            months = phase.months || [];
+            stage = phase.stage || "";
+            suitable = phase.suitable || "";
+            risk = phase.risk || "";
+        }
+        if (months.includes(currentMonth)) {
+            return { stage: stage, suitable: suitable || "-", risk: risk || "无关键气象风险" };
+        }
     }
     return { stage:"非主生育期", suitable:"-", risk:"无关键气象风险" };
 }
-
 function showPhenoInfo() {
-    const info = cropPhenology[currentCrop];
-    let html = `<strong>🌱 ${info.name} 动态物候（当前月份：${currentMonth}月）</strong><br>`;
-    for (let country in info.countries) {
-        const p = getCurrentPheno(info.countries[country]);
-        html += `
-        <div class="country-block">
-            <div class="country-title" onclick="toggleDetail(this)">${country}：${p.stage}</div>
-            <div class="detail">
-                • 适宜条件：${p.suitable}<br>
-                • 连续两周风险：${p.risk}
-            </div>
-        </div>`;
+    const cropMap = {soybean:"大豆",corn:"玉米",rapeseed:"菜籽",sunflower:"葵籽",cotton:"棉花",sugarcane:"甘蔗",sugarbeet:"甜菜",coffee:"咖啡",cocoa:"可可",wheat:"小麦",sorghum:"高粱",barley:"大麦",peanut:"花生",palm:"棕榈油"};
+        const cropCn = cropMap[currentCrop] || currentCrop;
+    const pheno = cropPhenology[currentCrop] ? cropPhenology[currentCrop].countries : {};
+    let html = `<strong>🌱 ${cropCn} 动态物候（当前月份：${currentMonth}月）</strong><br>`;
+    const countryNames = Object.keys(pheno);
+    if (countryNames.length === 0) {
+        html += `<div style="color:#999;">暂无物候数据</div>`;
+    } else {
+        for (let country of countryNames) {
+            const stages = pheno[country];
+            const p = getCurrentPheno(stages);
+            html += `
+            <div class="country-block">
+                <div class="country-title" onclick="toggleDetail(this)">${country}：${p.stage}</div>
+                <div class="detail">
+                    • 适宜条件：${p.suitable}<br>
+                    • 连续两周风险：${p.risk}
+                </div>
+            </div>`;
+        }
     }
     document.getElementById("phenoInfo").innerHTML = html;
 }
@@ -977,17 +1593,18 @@ document.querySelectorAll("path").forEach(path => {
             US:"北美", BR:"巴西", AR:"阿根廷", EU:"欧盟",
             IN:"印度", CN:"中国", AU:"澳洲",
             CA:"北美", RU:"西亚", UA:"欧盟",
-            VN:"东南亚", CO:"南美", CI:"西非", GH:"西非", EC:"南美",
-            NG:"非洲", PK:"印度" , MY:"东南亚",  ID:"东南亚",  TH:"东南亚"// 严格按你要求
+            VN:"东南亚", CO:"巴西", CI:"非洲", GH:"非洲", EC:"巴西",
+            NG:"非洲", PK:"印度" , MY:"东南亚",  ID:"东南亚",  TH:"东南亚"
         }[cid];
         if(weatherFolder){
             window.open("/weather/"+weatherFolder+"?crop="+currentCrop+"&country="+cid, "_blank");
         }else{
             alert("暂无该地区天气数据");
         }
-    });
+    });;
 });
 
+const phenologyData = {{PHENOLOGY_JSON|safe}};
 showDate();
 showPhenoInfo();
 renderMap();
@@ -999,7 +1616,9 @@ renderMap();
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TPL)
+    return render_template_string(HTML_TPL,
+                                  PHENOLOGY_JSON=json.dumps(CROP_PHENOLOGY, ensure_ascii=False)
+                                  )
 
 
 @app.route("/weather/<folder>")
@@ -1033,6 +1652,12 @@ def weather_page(folder):
         if country_cn:
             candidate = f"{country_cn}_{crop_cn}主产区.png"
             candidate_path = os.path.join(MAP_BASE, candidate)
+            if not os.path.exists(candidate_path) and country_cn == "澳洲":
+                alt_candidate = f"澳大利亚_{crop_cn}主产区.png"
+                alt_path = os.path.join(MAP_BASE, alt_candidate)
+                if os.path.exists(alt_path):
+                    candidate = alt_candidate
+                    candidate_path = alt_path
             if os.path.exists(candidate_path):
                 map_img_html = f'''
                 <div class="img-item">
@@ -1114,8 +1739,53 @@ def weather_page(folder):
     </style>
 </head>
 <body>
-    <button class="back-btn" onclick="window.close(); window.opener.focus();">← 返回主地图</button>
+    <div style="text-align:center;margin-bottom:15px;">
+        <button class="back-btn" onclick="window.close(); window.opener.focus();" style="display:inline-block;margin:0 auto 10px;">← 返回主地图</button>
+        <br>
+        <a href="/dashboard?crop={crop_code}&country={country_code}" style="display:inline-block;padding:10px 24px;background:#1a1a2e;color:#fff;text-decoration:none;border-radius:6px;font-size:15px;margin-top:5px;">\U0001f4ca \u67e5\u770b\u8be5\u533a\u57df\u7269\u5019\u770b\u677f</a>
+    </div>
+'''
 
+    # ===== 看板表格(顶部) =====
+    table_html = ""
+    try:
+        ck = crop_cn if crop_cn else ""
+        cy = COUNTRY_CODE_TO_CN.get(country_code, "") if country_code else ""
+        if ck and cy:
+            wb = [r for r in DASHBOARD_DATA.get(ck, []) if r["country"] == cy]
+            if not wb and cy == "澳洲":
+                wb = [r for r in DASHBOARD_DATA.get(ck, []) if r["country"] == "澳大利亚"]
+        else:
+            wb = []
+        if wb:
+            tb = []
+            tb.append('<div style="width:90%;margin:0 auto 20px;background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.1);overflow-x:auto;">')
+            tb.append('<div style="font-size:18px;margin-bottom:12px;color:#1a1a2e;font-weight:bold;border-left:5px solid #1a1a2e;padding-left:10px;">📊 ' + ck + ' ' + cy + ' 主产区物候监测数据</div>')
+            tb.append('<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#1a1a2e;color:#fff;">')
+            tb.append('<th style="padding:8px;text-align:center;">主产区</th><th style="padding:8px;text-align:center;">当前生长阶段</th><th style="padding:8px;text-align:center;">过去14天<br>降水(mm)</th><th style="padding:8px;text-align:center;">未来1-7天<br>降水(mm)</th><th style="padding:8px;text-align:center;">未来8-14天<br>降水(mm)</th><th style="padding:8px;text-align:center;">降水判断<br>(1-7天)</th><th style="padding:8px;text-align:center;">降水判断<br>(8-14天)</th><th style="padding:8px;text-align:center;">最新VHI</th><th style="padding:8px;text-align:center;">生长情况</th>')
+            tb.append('</tr></thead><tbody>')
+            for r in wb:
+                v = f'{r["latest_vhi"]:.1f}' if r["latest_vhi"] is not None else "-"
+                gc = {"growth-good":"#27ae60","growth-normal":"#2ecc71","growth-stress":"#e67e22","growth-severe":"#e74c3c"}.get(r["growth_class"],"#999")
+                j1 = {"rain-low":"#e74c3c","rain-high":"#2980b9","rain-normal":"#27ae60"}.get(r["judge1_class"],"#999")
+                j2 = {"rain-low":"#e74c3c","rain-high":"#2980b9","rain-normal":"#27ae60"}.get(r["judge2_class"],"#999")
+                tb.append('<tr><td style="padding:6px;text-align:left;font-weight:500;border-bottom:1px solid #eee;">' + str(r["province"]) + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;color:#555;">' + (("<span style=\"color:red;font-weight:bold\">" if r.get("stage","-") == "非主生育期" else "") + str(r.get("stage","-")) + ("</span>" if r.get("stage","-") == "非主生育期" else "")) + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;">' + f'{r["past14"]:.1f}' + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;">' + f'{r["future1_7"]:.1f}' + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;">' + f'{r["future8_14"]:.1f}' + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;color:' + j1 + ';font-weight:bold;">' + str(r["judge1_text"]) + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;color:' + j2 + ';font-weight:bold;">' + str(r["judge2_text"]) + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;font-weight:bold;">' + v + '</td>')
+                tb.append('<td style="padding:6px;text-align:center;border-bottom:1px solid #eee;color:' + gc + ';font-weight:bold;">' + str(r["growth_text"]) + '</td>')
+                tb.append('</tr>')
+            tb.append('</tbody></table></div>')
+            table_html = ''.join(tb)
+    except Exception:
+        pass
+
+    html += f'''
+    {table_html}
     <h1 class="title">{folder} 天气图集</h1>
 
     <div class="row">
@@ -1170,8 +1840,10 @@ def weather_page(folder):
     </script>
 </body>
 </html>
-    '''
+'''
+
     return html
+
 
 
 @app.route("/img/<folder>/<filename>")
@@ -1182,6 +1854,235 @@ def serve_img(folder, filename):
 @app.route("/map/<filename>")
 def serve_map(filename):
     return send_from_directory(MAP_BASE, filename)
+
+
+# ============ 新增：物候监测看板 ============
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>全球农产品物候监测看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; font-family:"Microsoft YaHei",sans-serif; }
+        body { background:#f0f2f5; padding:20px; }
+        .container { max-width:1600px; margin:0 auto; }
+        .header { display:flex; align-items:center; gap:15px; margin-bottom:20px; flex-wrap:wrap; }
+        .header h1 { font-size:22px; color:#1a1a2e; }
+        .back-btn { padding:8px 20px; background:#3498db; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px; text-decoration:none; }
+        .back-btn:hover { background:#2980b9; }
+        .update-info { font-size:13px; color:#888; margin-left:auto; }
+        .filter-bar { display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap; align-items:center; }
+        .filter-bar label { font-size:14px; font-weight:bold; color:#333; }
+        .filter-bar select { padding:6px 14px; font-size:14px; border-radius:6px; border:1px solid #ccc; background:#fff; }
+        .crop-tabs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:15px; }
+        .crop-tab { padding:8px 18px; background:#e8e8e8; border:none; border-radius:6px 6px 0 0; cursor:pointer; font-size:14px; transition:0.2s; }
+        .crop-tab.active { background:#1a1a2e; color:#fff; }
+        .crop-tab:hover:not(.active) { background:#d0d0d0; }
+        .table-wrap { overflow-x:auto; background:#fff; border-radius:8px; box-shadow:0 2px 12px rgba(0,0,0,0.08); display:none; padding:15px; }
+        .table-wrap.active { display:block; }
+        table { width:100%; border-collapse:collapse; font-size:13px; }
+        th { background:#1a1a2e; color:#fff; padding:10px 8px; text-align:center; white-space:nowrap; position:sticky; top:0; z-index:2; }
+        td { padding:8px; text-align:center; border-bottom:1px solid #eee; }
+        tr:hover td { background:#f8f9ff; }
+        .area-cell { text-align:left; font-weight:500; white-space:nowrap; }
+        .area-cell .country { color:#666; font-size:11px; font-weight:400; }
+        .rain-low { color:#e74c3c; font-weight:bold; }
+        .rain-high { color:#2980b9; font-weight:bold; }
+        .rain-normal { color:#27ae60; font-weight:bold; }
+        .growth-good { color:#27ae60; font-weight:bold; }
+        .growth-normal { color:#2ecc71; font-weight:bold; }
+        .growth-stress { color:#e67e22; font-weight:bold; }
+        .growth-severe { color:#e74c3c; font-weight:bold; }
+        .vhi-good { color:#27ae60; font-weight:bold; }
+        .vhi-normal { color:#f39c12; font-weight:bold; }
+        .vhi-stress { color:#e67e22; font-weight:bold; }
+        .vhi-severe { color:#e74c3c; font-weight:bold; }
+        .chart-cell { width:160px; height:55px; padding:2px; }
+        .chart-cell canvas { width:100% !important; height:100% !important; }
+        .sub-text { font-size:11px; color:#aaa; display:block; font-weight:400; }
+        .legend { display:flex; gap:20px; margin-bottom:12px; flex-wrap:wrap; font-size:12px; color:#555; }
+        .legend-item { display:flex; align-items:center; gap:4px; }
+        .legend-dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+        .filter-info { font-size:13px; color:#666; margin-bottom:10px; padding:8px 12px; background:#eef; border-radius:4px; }
+        .clear-filter { padding:4px 12px; background:#e74c3c; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px; text-decoration:none; }
+        .clear-filter:hover { background:#c0392b; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <a href="/" class="back-btn">← 返回</a>
+        <h1>🌾 全球农产品物候监测看板</h1>
+        <span class="update-info">数据更新: {{update_date}}</span>
+    </div>
+    <div class="legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#27ae60"></span> 生长良好 / 降水正常</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f39c12"></span> 生长正常</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e67e22"></span> 轻度胁迫 / 降水偏少</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e74c3c"></span> 严重胁迫</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#2980b9"></span> 降水偏多</div>
+    </div>
+    <div class="filter-bar">
+        <label>作物：</label>
+        <select id="cropSelect" onchange="onCropChange()">
+        </select>
+        <label style="margin-left:15px;">国家/地区：</label>
+        <select id="countrySelect" onchange="onCountryChange()">
+            <option value="">全部国家</option>
+        </select>
+        <a id="clearFilterBtn" href="/dashboard" class="clear-filter" style="display:none;">✖ 清除筛选</a>
+        <span id="filterInfo" class="filter-info" style="display:none;"></span>
+    </div>
+    <div class="crop-tabs" id="cropTabs"></div>
+    <div id="tableContainers"></div>
+</div>
+<script>
+const allData = {{DATA_JSON|safe}};
+const phenologyData = {{PHENOLOGY_JSON|safe}};
+const autoCrop = "{{auto_crop}}";
+const autoCountry = "{{auto_country}}";
+const countryMap = {{COUNTRY_MAP_JSON|safe}};
+let charts = {};
+
+function getVhiClass(v) { if(v>=60) return "vhi-good"; if(v>=40) return "vhi-normal"; if(v>=20) return "vhi-stress"; return "vhi-severe"; }
+
+function getCountriesForCrop(crop) {
+    const data = allData[crop] || [];
+    const countries = [...new Set(data.map(r => r.country))];
+    countries.sort();
+    return countries;
+}
+
+function renderCropSelect() {
+    const sel = document.getElementById("cropSelect");
+    const crops = Object.keys(allData);
+    sel.innerHTML = "";
+    crops.forEach((c, i) => {
+        const opt = document.createElement("option");
+        opt.value = c;
+        opt.textContent = c;
+        if (c === autoCrop) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+function renderCountrySelect(crop) {
+    const sel = document.getElementById("countrySelect");
+    const countries = getCountriesForCrop(crop);
+    sel.innerHTML = "<option value=''>全部国家</option>";
+    countries.forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c;
+        opt.textContent = c;
+        if (c === autoCountry) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    // Show/hide clear filter
+    const clearBtn = document.getElementById("clearFilterBtn");
+    const info = document.getElementById("filterInfo");
+    if (autoCountry) {
+        clearBtn.style.display = "inline-block";
+        info.style.display = "inline-block";
+        info.textContent = "🔍 当前筛选: " + crop + " → " + autoCountry;
+    } else {
+        clearBtn.style.display = "none";
+        info.style.display = "none";
+    }
+}
+
+function renderDashboard() {
+    renderCropSelect();
+    const crop = autoCrop || Object.keys(allData)[0];
+    renderCountrySelect(crop);
+
+    const tabsDiv = document.getElementById("cropTabs");
+    const contDiv = document.getElementById("tableContainers");
+    tabsDiv.innerHTML = "";
+    contDiv.innerHTML = "";
+
+    const data = allData[crop] || [];
+    // Filter by country if specified
+    const filtered = autoCountry ? data.filter(r => r.country === autoCountry) : data;
+
+    if (filtered.length === 0) {
+        contDiv.innerHTML = "<div style='text-align:center;padding:40px;color:#999;font-size:16px;'>暂无符合条件的数据</div>";
+        return;
+    }
+
+    // Single table (no tabs since we filter by crop)
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap active";
+    wrap.id = "tw-0";
+    wrap.innerHTML = '<table><thead><tr><th>主产区</th><th>过去14天<br>降水(mm)</th><th>未来1-7天<br>降水(mm)</th><th>未来8-14天<br>降水(mm)</th><th>降水判断<br><span class="sub-text">(1-7天)</span></th><th>降水判断<br><span class="sub-text">(8-14天)</span></th><th>最新VHI</th><th>过去6周VHI走势</th><th>生长情况判断</th></tr></thead><tbody id="tb-0"></tbody></table>';
+    contDiv.appendChild(wrap);
+
+    const tbody = document.getElementById("tb-0");
+    filtered.forEach((r, ri) => {
+        const tr = document.createElement("tr");
+        const hasVhi = r.vhi_trend && r.vhi_trend.length === 6;
+        let vhiDisp = "-", vhiCls = "";
+        if (hasVhi && r.latest_vhi !== null) { vhiDisp = r.latest_vhi.toFixed(1); vhiCls = getVhiClass(r.latest_vhi); }
+        const chartId = "c-0-" + ri;
+        tr.innerHTML = '<td class=\"area-cell\">' + r.province + '<br><span class=\"country\">' + r.country + '</span></td>' +
+            '<td>' + r.past14.toFixed(1) + '</td>' +
+            '<td>' + r.future1_7.toFixed(1) + '</td>' +
+            '<td>' + r.future8_14.toFixed(1) + '</td>' +
+            '<td class=\"' + r.judge1_class + '\">' + r.judge1_text + '</td>' +
+            '<td class=\"' + r.judge2_class + '\">' + r.judge2_text + '</td>' +
+            '<td class=\"' + vhiCls + '\">' + vhiDisp + '</td>' +
+            '<td><div class=\"chart-cell\"><canvas id=\"' + chartId + '\"></canvas></div></td>' +
+            '<td class=\"' + r.growth_class + '\">' + r.growth_text + '</td>';
+        tbody.appendChild(tr);
+
+        if (hasVhi && r.latest_vhi !== null) {
+            setTimeout(() => {
+                const ctx = document.getElementById(chartId);
+                if (!ctx) return;
+                new Chart(ctx, {
+                    type: "line",
+                    data: { labels: ["W17","W18","W19","W20","W21","W22"], datasets: [{ data: r.vhi_trend, borderColor: "#3498db", backgroundColor: "rgba(52,152,219,0.1)", borderWidth: 2, pointRadius: 2, pointBackgroundColor: "#3498db", fill: true, tension: 0.3 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false, grid: { display: false } }, y: { display: false, grid: { display: false }, min: 0, max: 100 } } }
+                });
+            }, 100);
+        }
+    });
+}
+
+function onCropChange() {
+    const crop = document.getElementById("cropSelect").value;
+    window.location.href = "/dashboard?crop=" + encodeURIComponent(crop);
+}
+
+function onCountryChange() {
+    const crop = document.getElementById("cropSelect").value;
+    const country = document.getElementById("countrySelect").value;
+    let url = "/dashboard?crop=" + encodeURIComponent(crop);
+    if (country) url += "&country=" + encodeURIComponent(country);
+    window.location.href = url;
+}
+
+renderDashboard();
+</script>
+</body>
+</html>"""
+
+
+@app.route("/dashboard")
+def dashboard():
+    crop = request.args.get("crop", "")
+    country = request.args.get("country", "")
+    # Validate crop exists
+    if crop and crop not in DASHBOARD_DATA:
+        crop = list(DASHBOARD_DATA.keys())[0] if DASHBOARD_DATA else ""
+    return render_template_string(DASHBOARD_HTML,
+                                  update_date=datetime.now().strftime("%Y-%m-%d"),
+                                  DATA_JSON=json.dumps(DASHBOARD_DATA, ensure_ascii=False),
+                                  auto_crop=crop,
+                                  auto_country=country,
+                                  COUNTRY_MAP_JSON=json.dumps(COUNTRY_CODE_TO_CN, ensure_ascii=False),
+                                  PHENOLOGY_JSON=json.dumps(CROP_PHENOLOGY, ensure_ascii=False)
+                                  )
 
 
 if __name__ == '__main__':
