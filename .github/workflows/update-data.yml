@@ -2,7 +2,7 @@ name: 更新VHI和降水数据
 
 on:
   schedule:
-    - cron: '0 2 * * *'        # 每天 UTC 2:00（北京 10:00）自动运行
+    - cron: '38 0 * * *'        # 每天 UTC 2:00（北京 10:00）自动运行
   workflow_dispatch:            # 允许在 GitHub 网页上手动触发
 
 jobs:
