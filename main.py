@@ -440,10 +440,12 @@ def get_current_stage(crop, country):
     pheno = CROP_PHENOLOGY.get(crop, {})
     stages = pheno.get(country, [])
     for stage_info in stages:
-        if len(stage_info) == 4:
-            start, _, end, stage = stage_info
-        else:
-            start, end, stage = stage_info
+        # Last element is always the stage name; preceding elements are month numbers
+        *months, stage = stage_info
+        if not months:
+            continue
+        start = months[0]
+        end = months[-1]
         if start <= end:
             if start <= month <= end:
                 return stage
