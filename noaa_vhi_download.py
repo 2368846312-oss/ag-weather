@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # ============================================================
 # 配置区
 # ============================================================
-OUTPUT_DIR = r"E:\Ag_weather\VHI_Data"
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "VHI_Data")
 API_BASE = "https://www.star.nesdis.noaa.gov/smcd/emb/vci/VH/get_TS_admin.php"
 CACHE_FILE = os.path.join(OUTPUT_DIR, "province_cache.json")
 MAX_WORKERS = 4
