@@ -2,8 +2,8 @@ name: 自动更新天气图
 
 on:
   schedule:
-    - cron: "23 23 * * *"   # UTC 0:00 → 北京时间 08:00
-    - cron: "38 0 * * *"   # UTC 7:00  → 北京时间 15:00
+    - cron: "23 10 * * *"   # UTC 0:00 → 北京时间 08:00
+    - cron: "38 11 * * *"   # UTC 7:00  → 北京时间 15:00
   workflow_dispatch:
 
 jobs:
