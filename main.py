@@ -466,7 +466,7 @@ def get_stage_thresholds(crop, country):
 
 # ============ 新增：数据文件路径 ============
 PRECIP_FILE = os.path.join(BASE_DIR, "全球农产品降水数据_最新.xlsx")
-VHI_FILE = os.path.join(BASE_DIR, "VHI_最近6周汇总.xlsx")
+VHI_FILE = os.path.join(BASE_DIR, "VHI_Data", "VHI_最近6周汇总.xlsx")
 
 
 def load_precip_data():
