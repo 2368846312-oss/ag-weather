@@ -86,7 +86,7 @@ COUNTRY_CODE_TO_CN = {
 }
 CN_TO_COUNTRY_CODE = {v: k for k, v in COUNTRY_CODE_TO_CN.items()}
 
-# 获取当前 main.py 所在的根目录（核心！）
+# 获取当前 main1.0.py 所在的根目录（核心！）
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 你的两个图片文件夹 都在根目录，直接这样写
@@ -1633,7 +1633,7 @@ def weather_page(folder):
     if not os.path.exists(target_path):
         return f"未找到文件夹：{target_path}"
 
-    all_imgs = [f for f in os.listdir(target_path) if f.lower().endswith(".png")]
+    all_imgs = [f for f in os.listdir(target_path) if f.lower().endswith((".png", ".jpg"))]
 
     map_img_html = ""
     if crop_cn and country_code:
@@ -1693,6 +1693,31 @@ def weather_page(folder):
     future_rain = [f for f in all_imgs if ("未来1-7天降雨" in f or "未来8-14天降雨" in f) and "距平" not in f]
     future_rain_anomaly = [f for f in all_imgs if "未来14天降水距平" in f]
     future_temp_anom = [f for f in all_imgs if ("未来1-7天气温距平" in f or "未来8-14天气温距平" in f)]
+
+    def _sort_hour_key(f):
+        name = f.rsplit('.', 1)[0]
+        num_str = name.rsplit('_', 1)[1].replace('h', '')
+        return int(num_str)
+
+    nmc_rain = sorted([f for f in all_imgs if "降雨预报" in f], key=_sort_hour_key)
+    nmc_temp = sorted([f for f in all_imgs if "最高气温预报" in f], key=_sort_hour_key)
+
+    nmc_html = ""
+    if nmc_rain or nmc_temp:
+        nmc_html = f'''
+    <div class="row">
+        <div class="row-title">第五排：中央气象台预报 — 降水预报</div>
+        <div class="img-group">
+            {"".join([f'<div class="img-item"><img src="/img/{folder}/{i}" onclick="openModal(this.src)"><div class="img-name">{i}</div></div>' for i in nmc_rain])}
+        </div>
+    </div>
+    <div class="row">
+        <div class="row-title">第五排：中央气象台预报 — 最高气温</div>
+        <div class="img-group">
+            {"".join([f'<div class="img-item"><img src="/img/{folder}/{i}" onclick="openModal(this.src)"><div class="img-name">{i}</div></div>' for i in nmc_temp])}
+        </div>
+    </div>
+    '''
 
     html = f'''
 <!DOCTYPE html>
@@ -1815,6 +1840,8 @@ def weather_page(folder):
             {"".join([f'<div class="img-item"><img src="/img/{folder}/{i}" onclick="openModal(this.src)"><div class="img-name">{i}</div></div>' for i in future_temp_anom])}
         </div>
     </div>
+
+    {nmc_html}
 
     <div class="modal" id="modal">
         <span class="close" onclick="closeModal()">&times;</span>

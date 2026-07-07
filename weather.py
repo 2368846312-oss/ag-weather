@@ -1,12 +1,13 @@
 import requests
 import datetime
 import os
-import time  # 【修复1】补上缺失的模块
-from zoneinfo import ZoneInfo  # 【修复2】正确时区（Python3.9+）
 
-# ========== 基准配置（今日2026-05-20 校准完毕） ==========
+# ==================== 路径配置 ====================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.join(BASE_DIR, "全球天气图集")
+
+# ========== worldagweather 基准配置（今日2026-05-20 校准完毕） ==========
 BASE_DATE = datetime.date(2026, 5, 20)
-
 # 四大编号序列
 BASE_NUM = {
     "pcp": 5072,        # 历史降水/降水距平
@@ -15,7 +16,7 @@ BASE_NUM = {
     "fcst_tmp": 3078    # 未来气温距平
 }
 
-# ===================== 区域简写 =====================
+# ===================== worldagweather 区域简写 =====================
 AREA_CODE = {
     "北美": "na",
     "巴西": "br",
@@ -29,81 +30,141 @@ AREA_CODE = {
     "非洲": "af"
 }
 
-# 图片模板库（通用模板，替换区域缩写即可）
+# worldagweather 图片模板库
 IMG_TPLS = [
     # 历史降水
-    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_{}_7day_{}.png", "name": "过去7天降雨"},
-    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_{}_14day_{}.png", "name": "过去14天降雨"},
-    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_{}_30day_{}.png", "name": "过去30天降雨"},
+    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_{}_7day_{}.png","name":"过去7天降雨"},
+    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_{}_14day_{}.png","name":"过去14天降雨"},
+    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_{}_30day_{}.png","name":"过去30天降雨"},
     # 历史降水距平
-    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_anom_{}_14day_{}.png", "name": "过去14天降雨距平"},
-    {"type": "pcp", "tpl": "https://www.worldagweather.com/pastwx/pastpcp_anom_{}_30day_{}.png", "name": "过去30天降雨距平"},
+    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_anom_{}_14day_{}.png","name":"过去14天降雨距平"},
+    {"type":"pcp","tpl":"https://www.worldagweather.com/pastwx/pastpcp_anom_{}_30day_{}.png","name":"过去30天降雨距平"},
     # 历史最高温距平
-    {"type": "tmax_anom", "tpl": "https://www.worldagweather.com/pastwx/pasttmax_anom_{}_7day_{}.png", "name": "过去7天最高温距平"},
-    {"type": "tmax_anom", "tpl": "https://www.worldagweather.com/pastwx/pasttmax_anom_{}_14day_{}.png", "name": "过去14天最高温距平"},
+    {"type":"tmax_anom","tpl":"https://www.worldagweather.com/pastwx/pasttmax_anom_{}_7day_{}.png","name":"过去7天最高温距平"},
+    {"type":"tmax_anom","tpl":"https://www.worldagweather.com/pastwx/pasttmax_anom_{}_14day_{}.png","name":"过去14天最高温距平"},
     # 未来降水
-    {"type": "fcst_pcp", "tpl": "https://www.worldagweather.com/fcstwx/pcp_ens_day7_q50_{}_{}.png", "name": "未来1-7天降雨"},
-    {"type": "fcst_pcp", "tpl": "https://www.worldagweather.com/fcstwx/pcp_ens_day8_q50_{}_{}.png", "name": "未来8-14天降雨"},
-    {"type": "fcst_pcp", "tpl": "https://www.worldagweather.com/fcstwx/pcp_ens_anom_q50_{}_{}.png", "name": "未来14天降水距平"},
+    {"type":"fcst_pcp","tpl":"https://www.worldagweather.com/fcstwx/pcp_ens_day7_q50_{}_{}.png","name":"未来1-7天降雨"},
+    {"type":"fcst_pcp","tpl":"https://www.worldagweather.com/fcstwx/pcp_ens_day8_q50_{}_{}.png","name":"未来8-14天降雨"},
+    {"type":"fcst_pcp","tpl":"https://www.worldagweather.com/fcstwx/pcp_ens_anom_q50_{}_{}.png","name":"未来14天降水距平"},
     # 未来气温距平
-    {"type": "fcst_tmp", "tpl": "https://www.worldagweather.com/fcstwx/tmp_gefs_day7_{}_{}.png", "name": "未来1-7天气温距平"},
-    {"type": "fcst_tmp", "tpl": "https://www.worldagweather.com/fcstwx/tmp_gefs_day8_{}_{}.png", "name": "未来8-14天气温距平"},
+    {"type":"fcst_tmp","tpl":"https://www.worldagweather.com/fcstwx/tmp_gefs_day7_{}_{}.png","name":"未来1-7天气温距平"},
+    {"type":"fcst_tmp","tpl":"https://www.worldagweather.com/fcstwx/tmp_gefs_day8_{}_{}.png","name":"未来8-14天气温距平"},
 ]
 
-ROOT_DIR = "全球天气图集"
+# ==================== NMC 中央气象台配置 ====================
+NMC_BASE = "https://image.nmc.cn/product"
 
-# ---------- 【修复3】正确北京时间，永不跨天错乱 ----------
-def get_today_beijing():
-    beijing_tz = ZoneInfo("Asia/Shanghai")
-    beijing_now = datetime.datetime.now(beijing_tz)
-    return beijing_now.date()
+PCP_HOURS = {24: "02400", 48: "04800", 72: "07200", 96: "09600",
+             120: "12000", 144: "14400", 168: "16800"}
+TMP_HOURS = {24: "02412", 48: "04812", 72: "07212", 96: "09612",
+             120: "12012", 144: "14412", 168: "16812"}
 
-today_beijing = get_today_beijing()
-day_off = (today_beijing - BASE_DATE).days
+# ==================== 辅助函数 ====================
 
-# 打印日志，方便排查
-print("="*50)
-print(f"基准日期: {BASE_DATE}")
-print(f"北京时间: {today_beijing}")
-print(f"偏移天数: {day_off}")
-print(f"当前时间戳: {int(time.time()*1000)}")
-print("="*50 + "\n")
+def build_nmc_urls(date_obj):
+    """根据日期构建 NMC 14 张图的 URL 列表"""
+    y, m, d = date_obj.year, date_obj.month, date_obj.day
+    ymd_str = f"{y}{m:02d}{d:02d}"
+    urls = []
 
-success = 0
-fail = 0
-total = 0
+    for hour, code in PCP_HOURS.items():
+        url = f"{NMC_BASE}/{y}/{m:02d}/{d:02d}/STFC/medium/SEVP_NMC_STFC_SFER_ER24_ACHN_L88_P9_{ymd_str}0000{code}.JPG"
+        filename = f"降雨预报_{hour}h.jpg"
+        urls.append((url, filename, f"降水预报_{hour}h"))
 
-# 遍历下载
-for area_name, area_suffix in AREA_CODE.items():
-    print(f"\n========== 开始下载【{area_name}】 ==========")
-    for item in IMG_TPLS:
-        total += 1
-        num = BASE_NUM[item["type"]] + day_off
-        
-        # 【修复4】强制不缓存，每次都拿最新图
-        url = item["tpl"].format(area_suffix, num) + f"?t={int(time.time()*1000)}"
-        save_path = os.path.join(ROOT_DIR, area_name, f"{item['name']}.png")
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    for hour, code in TMP_HOURS.items():
+        url = f"{NMC_BASE}/{y}/{m:02d}/{d:02d}/RFFC/medium/SEVP_NMC_RFFC_SNWFD_ETM_ACHN_L88_P9_{ymd_str}0800{code}.jpg"
+        filename = f"最高气温预报_{hour}h.jpg"
+        urls.append((url, filename, f"最高气温预报_{hour}h"))
 
+    return urls
+
+
+def download_nmc(save_dir, date_obj):
+    """下载 NMC 中国天气图"""
+    urls = build_nmc_urls(date_obj)
+    success = 0
+    fail = 0
+    print(f"\n{'='*50}")
+    print(f"【NMC 中央气象台 — 中国】日期: {date_obj}")
+    print(f"{'='*50}")
+
+    for url, filename, label in urls:
+        save_path = os.path.join(save_dir, filename)
         try:
-            # 【修复5】增加请求头，模拟浏览器，防止被拦截
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            res = requests.get(url, headers=headers, timeout=20)
-            res.raise_for_status()
-
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            content_type = resp.headers.get("Content-Type", "")
+            if "image" not in content_type and len(resp.content) < 5000:
+                print(f"⚠️ {label}  → 可能未发布（{len(resp.content)} bytes）")
+                fail += 1
+                continue
             with open(save_path, "wb") as f:
-                f.write(res.content)
-
-            print(f"✅ {item['name']} 下载完成")
+                f.write(resp.content)
+            print(f"✅ {label}  → {filename}")
             success += 1
-
-        except requests.exceptions.RequestException as e:
-            print(f"❌ {item['name']} 下载失败 | {str(e)[:50]}...")
+        except requests.RequestException as e:
+            print(f"❌ {label}  → {e}")
             fail += 1
 
-print("\n" + "="*50)
-print(f"任务完成 | 总计：{total} 张 | 成功：{success} | 失败：{fail}")
-print(f"文件保存路径：{os.path.abspath(ROOT_DIR)}")
-print("="*50)
+    # 全部失败则尝试昨日回退
+    if success == 0:
+        yesterday = date_obj - datetime.timedelta(days=1)
+        print(f"\n⚠️ 全失败，尝试昨日 ({yesterday}) ...")
+        return download_nmc(save_dir, yesterday)
+
+    return success, fail
+
+
+# ==================== 主流程 ====================
+
+if __name__ == "__main__":
+    today = datetime.date.today()
+
+    # ————— 第一步：worldagweather 全球区域下载 —————
+    day_off = (today - BASE_DATE).days
+    print(f"基准日期:{BASE_DATE}  今日:{today}  偏移天数:{day_off}")
+    print(f"{'='*50}")
+    print("【worldagweather — 全球区域】")
+    print(f"{'='*50}")
+
+    waw_success = 0
+    waw_fail = 0
+    waw_total = 0
+
+    for area_name, area_suffix in AREA_CODE.items():
+        print(f"\n--- {area_name} ---")
+        for item in IMG_TPLS:
+            waw_total += 1
+            num = BASE_NUM[item["type"]] + day_off
+            url = item["tpl"].format(area_suffix, num)
+            save_path = os.path.join(ROOT_DIR, area_name, f"{item['name']}.png")
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+            try:
+                res = requests.get(url, timeout=15)
+                res.raise_for_status()
+                with open(save_path, "wb") as f:
+                    f.write(res.content)
+                print(f"✅ {item['name']}")
+                waw_success += 1
+            except:
+                print(f"❌ {item['name']} 失败")
+                waw_fail += 1
+
+    # ————— 第二步：NMC 中国 14 张图 —————
+    nmc_dir = os.path.join(ROOT_DIR, "中国")
+    os.makedirs(nmc_dir, exist_ok=True)
+    nmc_success, nmc_fail = download_nmc(nmc_dir, today)
+
+    # ————— 汇总 —————
+    total_success = waw_success + nmc_success
+    total_fail = waw_fail + nmc_fail
+    total_all = waw_total + 14
+
+    print(f"\n{'='*60}")
+    print(f"全部任务结束")
+    print(f"  worldagweather: 成功 {waw_success} / 失败 {waw_fail} / 小计 {waw_total}")
+    print(f"  NMC 中央气象台:  成功 {nmc_success} / 失败 {nmc_fail} / 小计 14")
+    print(f"  总计: {total_success} / {total_fail} / {total_all}")
+    print(f"  文件存放根目录: {os.path.abspath(ROOT_DIR)}")
